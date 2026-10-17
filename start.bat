@@ -1,0 +1,10 @@
+@echo off
+cd /d "%~dp0"
+where py >nul 2>nul
+if %errorlevel%==0 (set "PY=py -3.11") else (set "PY=python")
+if not exist .venv\Scripts\python.exe (
+  %PY% -m venv .venv || (pause & exit /b 1)
+  .venv\Scripts\python.exe -m pip install -r requirements.txt || (pause & exit /b 1)
+)
+.venv\Scripts\python.exe main.py
+if errorlevel 1 pause
