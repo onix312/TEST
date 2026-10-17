@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 from office_core import (ProjectStore, atomic_json, detect_codex, detect_unity,
                          load_settings, save_settings, validate_project)
 from agents import AgentManager, codex_args
-from director import DesignerHistory, chat, make_plan
+from director import DesignerHistory, chat, make_plan, parse_plan
 from pixel_office import MiniIsland, PixelOffice
 from unity_integration import UnityRunner, bridge_install
 from workspaces import file_preview
@@ -160,7 +160,9 @@ class Office(QMainWindow):
         box.addLayout(row("После задачи:", self.depends))
         commands = QHBoxLayout()
         commands.addWidget(button("Добавить задачу", self.add_task))
-        commands.addWidget(button("ChatGPT → план", self.plan_task))
+        commands.addWidget(button("AI → план", self.plan_task))
+        commands.addWidget(button("Запрос плана для ChatGPT", self.copy_plan_prompt))
+        commands.addWidget(button("Вставить план ChatGPT", self.import_plan_clipboard))
         commands.addWidget(button("▶ Запустить агентов", self.start_agents))
         commands.addWidget(button("■ Остановить", self.stop_agents))
         box.addLayout(commands)
@@ -186,6 +188,7 @@ class Office(QMainWindow):
         commands = QHBoxLayout()
         commands.addWidget(button("Скопировать запрос для ChatGPT", self.copy_handoff))
         commands.addWidget(button("Импорт Markdown", self.import_gdd))
+        commands.addWidget(button("GDD из буфера", self.gdd_from_clipboard))
         commands.addWidget(button("Утвердить содержимое редактора", self.approve_gdd))
         box.addLayout(commands)
         self.gdd_editor = QPlainTextEdit()
@@ -495,6 +498,22 @@ class Office(QMainWindow):
         except Exception as exc:
             self.alert(exc)
 
+    def gdd_from_clipboard(self):
+        try:
+            store = self.require_project()
+            if self.manager.running:
+                raise RuntimeError("Останови агентов перед обновлением GDD.")
+            content = QApplication.clipboard().text().strip()
+            if content.startswith(chr(96) * 3):
+                content = "\n".join(content.splitlines()[1:-1])
+            if not content:
+                raise ValueError("Буфер обмена пуст.")
+            self.gdd_editor.setPlainText(content)
+            self.write_log("GDD скопирован в редактор. Нажми «Утвердить содержимое редактора».")
+            self.tabs.setCurrentIndex(2)
+        except Exception as exc:
+            self.alert(exc)
+
     def import_gdd(self):
         try:
             store = self.require_project()
@@ -553,6 +572,34 @@ class Office(QMainWindow):
         self.history.add("assistant", answer)
         self.designer_messages.appendPlainText("\nCHATGPT GAME DESIGNER:\n" + answer)
         self.write_log("Game Designer ответил. Утверждение GDD — отдельно.")
+
+    def copy_plan_prompt(self):
+        try:
+            store = self.require_project()
+            request = self.task_prompt.toPlainText().strip()
+            if not request:
+                raise ValueError("Сначала опиши задачу.")
+            handoff = (
+                "Ты Game Designer, помоги спланировать Unity-реализацию уже утверждённых "
+                "решений. Не добавляй новые правила игры. Разбей задачу максимум на 6 "
+                "подзадач для параллельных Codex-разработчиков. "
+                "Верни ТОЛЬКО JSON вида "
+                + '{"tasks":[{"title":"...","depends":[]},{"title":"...","depends":[0]}]}' +
+                "; depends — индексы предыдущих задач с нуля. "
+                "\n\nAPPROVED GDD:\n" + store.gdd()[:32000] +
+                "\n\nTASK:\n" + request)
+            QApplication.clipboard().setText(handoff)
+            self.write_log("Запрос плана для существующего чата ChatGPT скопирован.")
+        except Exception as exc:
+            self.alert(exc)
+
+    def import_plan_clipboard(self):
+        try:
+            self.require_project()
+            plan = parse_plan(QApplication.clipboard().text())
+            self.planner_response(plan)
+        except Exception as exc:
+            self.alert(exc)
 
     def plan_task(self):
         try:
