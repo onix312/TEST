@@ -158,7 +158,10 @@ class Office(QMainWindow):
         self.task_prompt.setMaximumHeight(110)
         box.addWidget(self.task_prompt)
         self.depends = QComboBox()
-        box.addLayout(row("После задачи:", self.depends))
+        self.agent_role = QComboBox()
+        self.agent_role.addItems(["Gameplay Developer", "Systems Developer", "UI Developer",
+                                  "Unity Tools Developer", "QA / Bugfix"])
+        box.addLayout(row("Специализация:", self.agent_role, "После задачи:", self.depends))
         commands = QHBoxLayout()
         commands.addWidget(button("Добавить задачу", self.add_task))
         commands.addWidget(button("AI → план", self.plan_task))
@@ -437,7 +440,8 @@ class Office(QMainWindow):
             store = self.require_project()
             dependency = self.depends.currentData()
             item = store.add(self.task_prompt.toPlainText(),
-                             depends=[dependency] if dependency else [])
+                             depends=[dependency] if dependency else [],
+                             role=self.agent_role.currentText())
             self.selected_id = item["id"]
             self.task_prompt.clear()
             self.refresh_tasks()
