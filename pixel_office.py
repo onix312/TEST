@@ -43,10 +43,21 @@ class PixelOffice(QWidget):
         painter.drawText(25, 27, "GAMEDEV AI OFFICE")
         statuses = ["idle", "idle", "idle", "idle"]
         names = ["CODEX-1", "CODEX-2", "CODEX-3", "CODEX-4"]
-        ordered = [t for t in self.tasks if t["status"] in ("running", "ready", "conflict", "failed")]
+        ordered = [t for t in self.tasks if t["status"] in ("running", "ready", "handoff", "conflict", "failed")]
         ordered += [t for t in self.tasks if t["status"] == "merged"]
         for index, task in enumerate(ordered[:4]):
             statuses[index] = task["status"]
+            model = str(task.get("model") or "").lower()
+            route = str(task.get("route") or "").lower()
+            if task.get("backend") == "chatgpt" or route.startswith("chatgpt_"):
+                if "luna" in model or route.endswith("fast"):
+                    names[index] = "GPT LUNA"
+                elif "astra" in model or route.endswith("deep"):
+                    names[index] = "GPT ASTRA"
+                else:
+                    names[index] = "GPT SOL"
+            else:
+                names[index] = "CODEX-" + str(index + 1)
         for i, status in enumerate(statuses):
             x = 48 + i * 208
             painter.fillRect(x+12, 153, 157, 13, QColor("#77586e"))
@@ -56,7 +67,8 @@ class PixelOffice(QWidget):
             painter.fillRect(x+57, 119, 93, 35, QColor("#3b3d60"))
             light = {
                 "running": "#b08dff", "merged": "#70d9ab", "ready": "#e7c679",
-                "conflict": "#e97087", "failed": "#e97087", "idle": "#6a587c"
+                "conflict": "#e97087", "failed": "#e97087",
+                "handoff": "#f1c56b", "idle": "#6a587c"
             }.get(status, "#7d7db3")
             painter.fillRect(x+65, 126, 77, 20, QColor(light))
             painter.fillRect(x+68, 128, 71, 16, QColor("#28344b"))
@@ -64,7 +76,7 @@ class PixelOffice(QWidget):
                 cursor = 3 + (self.tick % 8) * 7
                 painter.fillRect(x+cursor+70, 135, 6, 3, QColor(light))
             painter.fillRect(x+89, 154, 8, 9, QColor("#867397"))
-            if status in ("running", "ready", "conflict", "merged"):
+            if status in ("running", "ready", "conflict", "merged", "handoff"):
                 bob = self.tick % 2 if status == "running" else 0
                 painter.fillRect(x+89, 84+bob, 33, 24, QColor("#ffd2aa"))
                 painter.fillRect(x+85, 77+bob, 40, 12, QColor("#6e426e"))
@@ -105,5 +117,6 @@ class MiniIsland(QWidget):
     def set_tasks(self, tasks):
         active = sum(t["status"] == "running" for t in tasks)
         pending = sum(t["status"] in ("ready", "conflict") for t in tasks)
-        self.button.setText("◈  GAMEDEV   •   " + str(active) + " agents   •   " +
-                            str(pending) + " review")
+        handoffs = sum(t["status"] == "handoff" for t in tasks)
+        self.button.setText("◈  GAMEDEV • " + str(active) + " active • " +
+                            str(pending) + " review • " + str(handoffs) + " GPT")
