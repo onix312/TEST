@@ -94,7 +94,6 @@ class Office(QMainWindow):
 
         self.island = MiniIsland(self.open_window)
         self.island.place()
-        self.island.toggle = None
         self.style_ui()
         self.project_path.setText(self.prefs.get("project") or "")
         self.unity_path.setText(self.prefs.get("unity") or "")
@@ -235,6 +234,10 @@ class Office(QMainWindow):
         commands.addWidget(button("Unity PlayMode", lambda: self.unity_action("playmode")))
         commands.addWidget(button("Собрать Windows Game", lambda: self.unity_action("build")))
         box.addLayout(commands)
+        commands = QHBoxLayout()
+        commands.addWidget(button("Открыть отчёты / снимки", self.open_reports))
+        commands.addWidget(button("Создать задачу из Unity-ошибок", self.repair_unity_errors))
+        box.addLayout(commands)
         box.addStretch()
         self.tabs.addTab(panel, "▣  Unity")
 
@@ -264,6 +267,7 @@ class Office(QMainWindow):
         form.addRow("OpenAI API ключ (опция)", self.api_key)
         box.addLayout(form)
         box.addWidget(button("Сохранить и подключить проект", self.configure))
+        box.addWidget(button("Войти в Codex через терминал", self.login_codex))
         box.addWidget(QLabel(
             "Codex: установи CLI и выполни codex login в терминале.\n"
             "ChatGPT: существующий Game Designer чат остаётся в ChatGPT; перенос утверждённого "
@@ -609,23 +613,63 @@ class Office(QMainWindow):
             destination = store.folder / "scene-spec.json"
             atomic_json(destination, parsed)
             self.write_log("Сцена: " + str(destination))
+            return True
         except Exception as exc:
             self.alert(exc)
+            return False
 
     def unity_action(self, action):
         try:
             store = self.require_project()
             if self.manager.running:
                 raise RuntimeError("Unity batch нельзя запускать одновременно с агентами.")
-            if action == "scene":
-                self.save_scene_spec()
-                if not (store.folder / "scene-spec.json").exists():
-                    return
+            if action == "scene" and not self.save_scene_spec():
+                return
             if action in ("build", "scene", "report"):
                 if not (store.root / "Assets" / "Editor" / "GameDevAIOfficeBridge.cs").exists():
                     raise RuntimeError("Сначала установи Unity Bridge.")
             self.unity_runner.unity_exe = self.unity_path.text().strip()
             self.unity_runner.start(action)
+        except Exception as exc:
+            self.alert(exc)
+
+    def open_reports(self):
+        try:
+            store = self.require_project()
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(store.folder / "reports")))
+        except Exception as exc:
+            self.alert(exc)
+
+    def repair_unity_errors(self):
+        try:
+            store = self.require_project()
+            logs = sorted((store.folder / "reports").glob("*.log"),
+                          key=lambda p: p.stat().st_mtime, reverse=True)
+            if not logs:
+                raise ValueError("Нет отчётов Unity. Сначала запусти проверку в приложении.")
+            excerpt = logs[0].read_text(encoding="utf-8", errors="replace")[-16000:]
+            errors = [line for line in excerpt.splitlines()
+                      if "error" in line.lower() or "exception" in line.lower()]
+            if not errors:
+                raise ValueError("В последнем Unity-логе нет явных ошибок.")
+            note = (
+                "Исправь перечисленные ошибки Unity Editor в рамках утверждённого GDD. "
+                "Не меняй игровую механику; используй существующие классы и Unity .meta. "
+                "Ошибки (из " + logs[0].name + "):\n" + "\n".join(errors[-65:])[:8000])
+            item = store.add(note)
+            self.selected_id = item["id"]
+            self.refresh_tasks()
+            self.tabs.setCurrentIndex(1)
+        except Exception as exc:
+            self.alert(exc)
+
+    def login_codex(self):
+        try:
+            if os.name != "nt":
+                raise RuntimeError("Вход в Codex через кнопку рассчитан на Windows.")
+            command = subprocess.list2cmdline([self.codex_path.text().strip() or "codex", "login"])
+            subprocess.Popen(["cmd.exe", "/k", command],
+                             creationflags=subprocess.CREATE_NEW_CONSOLE)
         except Exception as exc:
             self.alert(exc)
 
