@@ -57,9 +57,12 @@ def chat(model, messages, gdd="", *, purpose="design", api_key=None):
     if purpose == "planning":
         instructions = (
             "You are a game-development project planner. Do not add game design decisions. "
-            "Split the user's approved request into up to six independent implementation tasks "
-            "for Unity Codex agents. Return only JSON: "
-            '{"tasks":[{"title":"task text","depends":[0]}]}. '
+            "Split the user's approved request into up to six tasks with roles. "
+            "Some simple tasks are read-only research or writing for ChatGPT; "
+            "actual Unity file modifications must be done by Codex. "
+            "Return only JSON: "
+            '{"tasks":[{"title":"task text","depends":[],"route":"chatgpt_fast"},'
+            '{"title":"implement code","depends":[0],"route":"codex"}]}. '
             "depends is a list of ZERO-BASED indexes of earlier tasks, "
             "no duplicate indexes. Return no Markdown."
         )
@@ -118,7 +121,15 @@ def parse_plan(raw):
             raise ValueError("Некорректная задача в плане.")
         if not isinstance(depends, list) or any(type(dep) is not int or dep < 0 or dep >= index for dep in depends):
             raise ValueError("Недопустимая зависимость в плане.")
-        parsed.append((title, list(dict.fromkeys(depends))))
+        from model_routing import classify
+        proposed = item.get("route", "auto")
+        if proposed not in ("auto", "chatgpt_fast", "chatgpt_balanced", "chatgpt_deep", "codex"):
+            raise ValueError("Недопустимый маршрут модели.")
+        # Don't let a planner accidentally assign code/file changes to a read-only model.
+        safety_backend, _, _ = classify(title, "auto")
+        if proposed.startswith("chatgpt_") and safety_backend == "codex":
+            proposed = "codex"
+        parsed.append((title, list(dict.fromkeys(depends)), proposed))
     return parsed
 
 
