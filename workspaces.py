@@ -87,7 +87,7 @@ def inspect_conflicts(root: Path, changes):
             issues.append(rel + ": invalid path")
             continue
         live_path = Path(root) / rel
-        if live_path.is_symlink():
+        if any(parent.is_symlink() for parent in (live_path, *list(live_path.parents)[:-1])):
             issues.append(rel + ": symlink")
             continue
         if digest(live_path) != change["before"] and digest(live_path) != change["after"]:
@@ -106,8 +106,14 @@ def integrate(root: Path, task_id: str, changes, *, allow_deletions=False):
             conflicts = [x for x in conflicts if not x.endswith(": deletion requires explicit review")]
         if conflicts:
             return None, conflicts
-        backup = checkpoint(root) if changes else None
         workspace = workspace_for(root, task_id)
+        # Preflight every source before changing any production file.
+        for change in changes:
+            if change["action"] != "delete":
+                source = workspace / change["path"]
+                if not source.is_file() or source.is_symlink() or digest(source) != change["after"]:
+                    raise ValueError("Workspace changed after review: " + change["path"])
+        backup = checkpoint(root) if changes else None
         for change in changes:
             relative = change["path"]
             source = workspace / relative
