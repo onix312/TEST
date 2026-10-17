@@ -333,6 +333,8 @@ class Office(QMainWindow):
         root = validate_project(self.project_path.text())
         if self.manager and self.manager.running:
             raise RuntimeError("Останови агентов перед переключением проекта.")
+        if self.is_busy:
+            raise RuntimeError("Сначала дождись ответа Game Designer.")
         self.store = ProjectStore(root)
         self.manager = AgentManager(self.store, self.codex_path.text(),
                                     self.worker_count.value(), self.auto_merge.isChecked())
@@ -585,14 +587,15 @@ class Office(QMainWindow):
             self.question.clear()
             self.is_busy = True
             messages = list(self.history.messages)
-            threading.Thread(target=self._designer_worker, args=(messages, store.gdd()),
+            threading.Thread(target=self._designer_worker,
+                             args=(messages, store.gdd(), self.model_name.text().strip()),
                              daemon=True).start()
         except Exception as exc:
             self.alert(exc)
 
-    def _designer_worker(self, messages, gdd):
+    def _designer_worker(self, messages, gdd, model):
         try:
-            answer = chat(self.model_name.text().strip(), messages, gdd, api_key=self._api_key)
+            answer = chat(model, messages, gdd, api_key=self._api_key)
             self.events.response.emit(answer)
         except Exception as exc:
             self.events.error.emit(str(exc))
