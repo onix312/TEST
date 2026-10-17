@@ -7,6 +7,7 @@ import sys
 import threading
 from pathlib import Path
 
+from safety import checkpoint
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QMainWindow, QMessageBox, QPushButton,
@@ -172,12 +173,22 @@ class Office(QMainWindow):
         if not resolved and not Path(executable).is_file():
             QMessageBox.warning(self, "Codex", "Install Codex CLI and run codex login first.")
             return
+        if not (root / ".ai-office" / "gdd" / "approved.md").exists():
+            QMessageBox.warning(self, "GDD", "Import approved GDD before running tasks.")
+            return
         self.active = True
         threading.Thread(target=self.run_worker, args=(root, resolved or executable), daemon=True).start()
 
     def run_worker(self, root, executable):
         while self.jobs and self.active:
             title = self.jobs.pop(0)
+            self.events.event.emit("Preparing checkpoint: " + title[:100])
+            try:
+                backup = checkpoint(root)
+                self.events.event.emit("Checkpoint saved: " + str(backup))
+            except (OSError, ValueError) as exc:
+                self.events.event.emit("Cannot start without checkpoint: " + str(exc))
+                break
             self.events.event.emit("Starting: " + title[:100])
             log_path = prepare(root) / "logs" / "codex.jsonl"
             try:
@@ -195,6 +206,9 @@ class Office(QMainWindow):
                             self.events.event.emit(line.strip())
                     result = self.process.wait()
                 self.events.event.emit("Finished: exit code " + str(result))
+                if result != 0:
+                    self.events.event.emit("Stopped queue after failed task; check partial changes.")
+                    break
             except OSError as exc:
                 self.events.event.emit("Error: " + str(exc))
                 break
