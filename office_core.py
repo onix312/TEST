@@ -13,7 +13,7 @@ from pathlib import Path
 
 APP_DIR = Path(os.getenv("LOCALAPPDATA") or Path.home() / ".gamedev-office") / "GameDevAIOffice"
 SETTINGS = APP_DIR / "settings.json"
-TASK_STATES = {"queued", "running", "ready", "merged", "conflict", "failed", "cancelled", "interrupted"}
+TASK_STATES = {"queued", "running", "ready", "merged", "conflict", "failed", "cancelled", "interrupted", "rolled_back"}
 
 
 def now():
