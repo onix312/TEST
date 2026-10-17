@@ -6,7 +6,6 @@ dependencies, never touch Unity sources or approve new GDD decisions.
 from __future__ import annotations
 
 import os
-import re
 
 FAST = "gpt-6-luna"
 BALANCED = "gpt-6.1-sol"
@@ -56,7 +55,21 @@ def classify(task_text, route="auto", models=None):
     }
     if route in chosen:
         return "chatgpt", chosen[route], "Задача с текстовым результатом, без доступа к файлам."
-    phrase = task_text.lower()
+    phrase = task_text.lower().strip()
+    text_only_start = (
+        "придумай", "предложи", "опиши", "объясни", "перечисли",
+        "сравни", "проанализируй", "разбей", "составь список",
+        "напиши описание", "напиши диалог", "напиши текст",
+        "summarize", "describe", "brainstorm",
+    )
+    explicit_file_target = (
+        "assets/" in phrase or ".cs" in phrase or ".unity" in phrase or
+        "поменяй файл" in phrase or "изменения в проекте" in phrase
+    )
+    if phrase.startswith(text_only_start) and not explicit_file_target:
+        if len(phrase) > 700 or any(word in phrase for word in HARD_WORDS):
+            return "chatgpt", chosen["chatgpt_balanced"], "Аналитика или текстовое ТЗ."
+        return "chatgpt", chosen["chatgpt_fast"], "Простая текстовая задача."
     # A real code/data change is never sent to a text-only model by AUTO.
     if any(word in phrase for word in EDIT_WORDS):
         return "codex", "Codex CLI", "Задача может менять проект Unity."
