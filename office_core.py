@@ -13,7 +13,7 @@ from pathlib import Path
 
 APP_DIR = Path(os.getenv("LOCALAPPDATA") or Path.home() / ".gamedev-office") / "GameDevAIOffice"
 SETTINGS = APP_DIR / "settings.json"
-TASK_STATES = {"queued", "running", "ready", "merged", "conflict", "failed", "cancelled", "interrupted", "rolled_back"}
+TASK_STATES = {"queued", "running", "ready", "merged", "conflict", "failed", "cancelled", "interrupted", "rolled_back", "handoff"}
 
 
 def now():
@@ -98,12 +98,16 @@ def detect_unity(root=None):
 
 def load_settings():
     return read_json(SETTINGS, {"project": "", "unity": "", "codex": "codex", "workers": 2,
-                                "auto_merge": True, "model": "gpt-5.1", "mini": False})
+                                "auto_merge": True, "model": "gpt-6.1-sol", "mini": False,
+                                "model_fast": "gpt-6-luna", "model_balanced": "gpt-6.1-sol",
+                                "model_deep": "gpt-6-astra", "model_review": "gpt-6.1-sol",
+                                "review_enabled": False})
 
 
 def save_settings(data):
     safe = {key: data.get(key) for key in
-            ("project", "unity", "codex", "workers", "auto_merge", "model", "mini")}
+            ("project", "unity", "codex", "workers", "auto_merge", "model", "mini",
+             "model_fast", "model_balanced", "model_deep", "model_review", "review_enabled")}
     atomic_json(SETTINGS, safe)
 
 
@@ -129,16 +133,20 @@ class ProjectStore:
         with self._mutex:
             atomic_json(self.tasks_path, self.tasks)
 
-    def add(self, prompt, depends=None, role="Developer"):
+    def add(self, prompt, depends=None, role="Developer", route="auto"):
         prompt = prompt.strip()
         if not prompt:
             raise ValueError("Описание задачи пустое.")
         dependencies = list(dict.fromkeys(depends or []))
         if any(not self.find(dep) for dep in dependencies):
             raise ValueError("Указана несуществующая зависимость.")
-        task = dict(id=uuid.uuid4().hex[:12], text=prompt, role=role, depends=dependencies,
+        from model_routing import ROUTES
+        if route not in ROUTES:
+            raise ValueError("Неизвестный маршрут модели.")
+        task = dict(id=uuid.uuid4().hex[:12], text=prompt, role=role, route=route,
+                    backend="", model="", depends=dependencies,
                     status="queued", created=now(), updated=now(), error="", summary="",
-                    workspace="", changes=[], conflicts=[], checkpoint="")
+                    review="", workspace="", changes=[], conflicts=[], checkpoint="")
         with self._mutex:
             self.tasks.append(task)
             self.save()
@@ -158,7 +166,7 @@ class ProjectStore:
 
     def reset(self, task_id):
         task = self.find(task_id)
-        if not task or task["status"] not in {"failed", "cancelled", "interrupted", "conflict"}:
+        if not task or task["status"] not in {"failed", "cancelled", "interrupted", "conflict", "handoff"}:
             raise ValueError("Для повторного запуска выбери ошибочную или прерванную задачу.")
         return self.update(task_id, status="queued", changes=[], conflicts=[], error="", workspace="")
 
