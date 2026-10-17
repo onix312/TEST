@@ -77,7 +77,7 @@ def chat(model, messages, gdd="", *, purpose="design", api_key=None):
             "instructions": instructions,
             "input": [{"role": m["role"], "content": m["content"][:12000]}
                       for m in messages[-16:]],
-            "max_output_tokens": 2500}
+            "max_output_tokens": 2500, "store": False}
     data = json.dumps(body, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(ENDPOINT, data=data, method="POST",
                                      headers={"Authorization": "Bearer " + key,
@@ -86,8 +86,8 @@ def chat(model, messages, gdd="", *, purpose="design", api_key=None):
         with urllib.request.urlopen(request, timeout=120) as response:
             payload = json.load(response)
     except urllib.error.HTTPError as exc:
-        detail = exc.read(1200).decode("utf-8", errors="replace")
-        raise RuntimeError("OpenAI API HTTP " + str(exc.code) + ": " + detail) from exc
+        raise RuntimeError("OpenAI API HTTP " + str(exc.code) +
+                           ". Проверь разрешения модели и API-баланс.") from exc
     except urllib.error.URLError as exc:
         raise RuntimeError("Не удалось связаться с OpenAI: " + str(exc.reason)) from exc
     answer = extract_text(payload)
