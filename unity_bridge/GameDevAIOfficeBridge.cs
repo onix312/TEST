@@ -84,6 +84,13 @@ namespace GameDevAIOffice
                 }
             }
             EditorSceneManager.SaveScene(scene, scenePath);
+            var buildScenes = new List<EditorBuildSettingsScene>(EditorBuildSettings.scenes);
+            bool registered = false;
+            foreach (var entry in buildScenes)
+                if (entry.path == scenePath) registered = true;
+            if (!registered)
+                buildScenes.Add(new EditorBuildSettingsScene(scenePath, true));
+            EditorBuildSettings.scenes = buildScenes.ToArray();
             AssetDatabase.Refresh();
             Debug.Log("GameDev AI Office: scene saved at " + scenePath);
         }
