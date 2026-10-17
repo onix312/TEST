@@ -24,8 +24,8 @@ def extract_text(payload):
     return "\n".join(parts)
 
 
-def chat(model, messages, gdd="", *, purpose="design"):
-    key = os.getenv("OPENAI_API_KEY", "").strip()
+def chat(model, messages, gdd="", *, purpose="design", api_key=None):
+    key = (api_key or os.getenv("OPENAI_API_KEY", "")).strip()
     if not key:
         raise RuntimeError("Для встроенного Game Designer нужен OPENAI_API_KEY. "
                            "Либо используй существующий чат ChatGPT и импорт GDD вручную.")
@@ -68,12 +68,12 @@ def chat(model, messages, gdd="", *, purpose="design"):
     return answer
 
 
-def make_plan(model, gdd, task):
+def make_plan(model, gdd, task, *, api_key=None):
     if not gdd.strip():
         raise ValueError("Нет утверждённого GDD для планирования.")
     raw = chat(model, [{"role": "user",
                         "content": "APPROVED GDD:\n" + gdd[:35000] + "\nREQUEST:\n" + task}],
-               gdd, purpose="planning")
+               gdd, purpose="planning", api_key=api_key)
     return parse_plan(raw)
 
 
