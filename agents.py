@@ -23,7 +23,8 @@ PROMPT = (
     "use network services, delete data, commit/push Git, or run Unity Editor. "
     "If requirements are unclear, report questions rather than guessing. "
     "Work autonomously on the scoped task, report what changed and what remains uncertain. "
-    "No tests are requested for this development pass. Respond in Russian.\n\nTASK:\n"
+    "Run narrow checks where feasible; do not start Unity Editor directly, because " 
+    "the orchestration app handles Editor operations. Respond in Russian.\n\nTASK:\n"
 )
 
 
