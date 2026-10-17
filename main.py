@@ -715,9 +715,11 @@ class Office(QMainWindow):
             handoff = (
                 "Ты Game Designer, помоги спланировать Unity-реализацию уже утверждённых "
                 "решений. Не добавляй новые правила игры. Разбей задачу максимум на 6 "
-                "подзадач для параллельных Codex-разработчиков. "
+                "подзадач: лёгкие аналитические и текстовые задачи делай через ChatGPT, "
+                "изменения файлов Unity поручай Codex. "
                 "Верни ТОЛЬКО JSON вида "
-                + '{"tasks":[{"title":"...","depends":[]},{"title":"...","depends":[0]}]}' +
+                + '{"tasks":[{"title":"опиши варианты","depends":[],"route":"chatgpt_fast"},'
+                '{"title":"реализуй скрипт","depends":[0],"route":"codex"}]}' +
                 "; depends — индексы предыдущих задач с нуля. "
                 "\n\nAPPROVED GDD:\n" + store.gdd()[:32000] +
                 "\n\nTASK:\n" + request)
@@ -761,8 +763,10 @@ class Office(QMainWindow):
         try:
             store = self.require_project()
             created = []
-            for title, deps in plan:
-                task = store.add(title, depends=[created[n] for n in deps])
+            for entry in plan:
+                title, deps, route = (entry[0], entry[1],
+                                      entry[2] if len(entry) > 2 else "auto")
+                task = store.add(title, depends=[created[n] for n in deps], route=route)
                 created.append(task["id"])
             self.task_prompt.clear()
             self.refresh_tasks()
