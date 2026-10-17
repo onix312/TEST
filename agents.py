@@ -149,7 +149,7 @@ class AgentManager(QObject):
                 process = subprocess.Popen(argv, cwd=str(workspace), stdout=subprocess.PIPE,
                                            stdin=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                            encoding="utf-8", errors="replace", bufsize=1)
-                process.stdin.write(PROMPT + task["text"])
+                process.stdin.write(PROMPT + "ROLE: " + task.get("role", "Developer") + "\n" + task["text"])
                 process.stdin.close()
                 with self.lock:
                     self.processes[task_id] = process
