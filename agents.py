@@ -195,9 +195,9 @@ class AgentManager(QObject):
             if conflicts:
                 self.status(task_id, "conflict", error="\n".join(conflicts))
                 return
+            if not self.review_before_merge(task_id, changes):
+                return
             if self.auto_merge:
-                if not self.review_before_merge(task_id, changes):
-                    return
                 backup, conflict = integrate(self.store.root, task_id, changes)
                 if conflict:
                     self.status(task_id, "conflict", conflicts=conflict, error="\n".join(conflict))
