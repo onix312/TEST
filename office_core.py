@@ -6,6 +6,7 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -109,6 +110,7 @@ def save_settings(data):
 class ProjectStore:
     """A project's history lives beside its game; Git is never required."""
     def __init__(self, root):
+        self._mutex = threading.RLock()
         self.root = validate_project(root)
         self.folder = prepare(self.root)
         self.tasks_path = self.folder / "tasks.json"
@@ -124,7 +126,8 @@ class ProjectStore:
             self.save()
 
     def save(self):
-        atomic_json(self.tasks_path, self.tasks)
+        with self._mutex:
+            atomic_json(self.tasks_path, self.tasks)
 
     def add(self, prompt, depends=None, role="Developer"):
         prompt = prompt.strip()
@@ -136,8 +139,9 @@ class ProjectStore:
         task = dict(id=uuid.uuid4().hex[:12], text=prompt, role=role, depends=dependencies,
                     status="queued", created=now(), updated=now(), error="", summary="",
                     workspace="", changes=[], conflicts=[], checkpoint="")
-        self.tasks.append(task)
-        self.save()
+        with self._mutex:
+            self.tasks.append(task)
+            self.save()
         return task
 
     def find(self, task_id):
@@ -147,8 +151,9 @@ class ProjectStore:
         task = self.find(task_id)
         if not task:
             raise ValueError("Задача не найдена.")
-        task.update(fields, updated=now())
-        self.save()
+        with self._mutex:
+            task.update(fields, updated=now())
+            self.save()
         return task
 
     def reset(self, task_id):
