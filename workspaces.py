@@ -7,6 +7,7 @@ import os
 import shutil
 import threading
 import zipfile
+import uuid
 from pathlib import Path
 
 from office_core import office_dir, prepare, atomic_json
@@ -51,8 +52,9 @@ def provision(root: Path, task_id: str, gdd: str):
     root = Path(root)
     folder = workspace_for(root, task_id)
     if folder.parent.exists():
-        # Failed jobs are preserved for inspection; retries use a new snapshot.
-        shutil.rmtree(folder.parent)
+        # Preserve failed and interrupted work when a user explicitly retries.
+        archive = folder.parent.with_name(task_id + "-previous-" + uuid.uuid4().hex[:8])
+        folder.parent.rename(archive)
     folder.mkdir(parents=True)
     baseline = inventory(root)
     for section in SOURCE_DIRS:
