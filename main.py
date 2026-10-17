@@ -21,13 +21,13 @@ from office_core import (ProjectStore, atomic_json, detect_codex, detect_unity,
 from agents import AgentManager, codex_args
 from director import DesignerHistory, chat, make_plan, parse_plan
 from pixel_office import MiniIsland, PixelOffice
-from unity_integration import UnityRunner, bridge_install
-from workspaces import file_preview
+from unity_integration import UnityRunner, bridge_install, unity_locked
+from workspaces import file_preview, undo_merge
 
 STATUS_LABELS = {
     "queued": "ОЧЕРЕДЬ", "running": "РАБОТАЕТ", "ready": "НА ПРОВЕРКЕ",
     "merged": "ГОТОВО", "conflict": "КОНФЛИКТ", "failed": "ОШИБКА",
-    "interrupted": "ПРЕРВАНО", "cancelled": "ОТМЕНЕНО"
+    "interrupted": "ПРЕРВАНО", "cancelled": "ОТМЕНЕНО", "rolled_back": "ОТКАЧЕНО"
 }
 
 
@@ -176,6 +176,7 @@ class Office(QMainWindow):
         commands = QHBoxLayout()
         commands.addWidget(button("Применить изменения", self.approve_task))
         commands.addWidget(button("Перезапустить задачу", self.retry_task))
+        commands.addWidget(button("Откатить задачу", self.undo_task))
         commands.addWidget(button("Папка агента", self.open_agent_folder))
         box.addLayout(commands)
         self.tabs.addTab(panel, "⌘  Codex Agents")
@@ -471,6 +472,30 @@ class Office(QMainWindow):
                 allow_deletions = True
             self.manager.approve(task["id"], allow_deletions=allow_deletions)
             self.refresh_tasks()
+        except Exception as exc:
+            self.alert(exc)
+
+    def undo_task(self):
+        try:
+            store = self.require_project()
+            task = store.find(self.selected_id)
+            if not task or task["status"] != "merged" or not task.get("checkpoint"):
+                raise ValueError("У этой задачи нет применённых изменений с архивом.")
+            if self.manager.running or (self.unity_runner and self.unity_runner.running):
+                raise RuntimeError("Останови операции перед откатом.")
+            if unity_locked(store.root):
+                raise RuntimeError("Закрой Unity Editor перед откатом.")
+            if any(t["status"] == "merged" and task["id"] in t.get("depends", [])
+                   for t in store.tasks):
+                raise RuntimeError("Сначала откати зависимые применённые задачи.")
+            if QMessageBox.question(self, "Откат изменений",
+                    "Отменить файлы этой задачи? Программа создаст ещё один checkpoint. "
+                    "Более новые изменения защищены проверкой хэшей.") != QMessageBox.StandardButton.Yes:
+                return
+            backup = undo_merge(store.root, task)
+            store.update(task["id"], status="rolled_back", error="Откачено; backup перед откатом: " + str(backup))
+            self.refresh_tasks()
+            self.write_log("Изменения задачи откачены.")
         except Exception as exc:
             self.alert(exc)
 
