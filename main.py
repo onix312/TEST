@@ -27,7 +27,7 @@ from workspaces import file_preview, undo_merge
 STATUS_LABELS = {
     "queued": "ОЧЕРЕДЬ", "running": "РАБОТАЕТ", "ready": "НА ПРОВЕРКЕ",
     "merged": "ГОТОВО", "conflict": "КОНФЛИКТ", "failed": "ОШИБКА",
-    "interrupted": "ПРЕРВАНО", "cancelled": "ОТМЕНЕНО", "rolled_back": "ОТКАЧЕНО"
+    "interrupted": "ПРЕРВАНО", "cancelled": "ОТМЕНЕНО", "rolled_back": "ОТКАТ"
 }
 
 
@@ -498,9 +498,9 @@ class Office(QMainWindow):
                     "Более новые изменения защищены проверкой хэшей.") != QMessageBox.StandardButton.Yes:
                 return
             backup = undo_merge(store.root, task)
-            store.update(task["id"], status="rolled_back", error="Откачено; backup перед откатом: " + str(backup))
+            store.update(task["id"], status="rolled_back", error="Откат выполнен; backup перед откатом: " + str(backup))
             self.refresh_tasks()
-            self.write_log("Изменения задачи откачены.")
+            self.write_log("Изменения задачи откатили.")
         except Exception as exc:
             self.alert(exc)
 
