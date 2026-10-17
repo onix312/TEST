@@ -68,6 +68,7 @@ class Office(QMainWindow):
         self.events.plan.connect(self.planner_response)
         self.events.error.connect(self.display_error)
         self.is_busy = False
+        self._api_key = ""
         self.selected_id = None
 
         outer = QWidget()
@@ -321,7 +322,7 @@ class Office(QMainWindow):
         save_settings(prefs)
         key = self.api_key.text().strip()
         if key:
-            os.environ["OPENAI_API_KEY"] = key
+            self._api_key = key
             self.api_key.clear()
         return prefs
 
@@ -587,7 +588,7 @@ class Office(QMainWindow):
 
     def _designer_worker(self, messages, gdd):
         try:
-            answer = chat(self.model_name.text().strip(), messages, gdd)
+            answer = chat(self.model_name.text().strip(), messages, gdd, api_key=self._api_key)
             self.events.response.emit(answer)
         except Exception as exc:
             self.events.error.emit(str(exc))
@@ -644,7 +645,7 @@ class Office(QMainWindow):
 
     def _planner_worker(self, gdd, task, model):
         try:
-            self.events.plan.emit(make_plan(model, gdd, task))
+            self.events.plan.emit(make_plan(model, gdd, task, api_key=self._api_key))
         except Exception as exc:
             self.events.error.emit(str(exc))
 
