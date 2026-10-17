@@ -74,6 +74,10 @@ def make_plan(model, gdd, task):
     raw = chat(model, [{"role": "user",
                         "content": "APPROVED GDD:\n" + gdd[:35000] + "\nREQUEST:\n" + task}],
                gdd, purpose="planning")
+    return parse_plan(raw)
+
+
+def parse_plan(raw):
     stripped = raw.strip()
     if stripped.startswith(chr(96) * 3):
         stripped = "\n".join(stripped.splitlines()[1:-1])
