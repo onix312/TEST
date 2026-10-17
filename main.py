@@ -38,7 +38,7 @@ def codex_args(executable, root, task):
         "Make scoped changes and run focused checks. Report in Russian.\n")
     if gdd.exists():
         instruction += "Read approved GDD at: " + str(gdd) + "\n"
-    return [executable, "exec", "--json", "--cd", str(root), instruction + task]
+    return [executable, "exec", "--json", "--skip-git-repo-check", "--sandbox", "workspace-write", "--cd", str(root), instruction + task]
 
 
 class Events(QObject):
