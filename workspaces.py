@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import threading
+import zipfile
 from pathlib import Path
 
 from office_core import office_dir, prepare, atomic_json
@@ -114,24 +115,33 @@ def integrate(root: Path, task_id: str, changes, *, allow_deletions=False):
                 if not source.is_file() or source.is_symlink() or digest(source) != change["after"]:
                     raise ValueError("Workspace changed after review: " + change["path"])
         backup = checkpoint(root) if changes else None
-        for change in changes:
-            relative = change["path"]
-            source = workspace / relative
-            target = root / relative
-            if change["action"] == "delete":
-                if target.is_dir() or target.is_symlink():
-                    raise ValueError("Invalid deletion path: " + relative)
-                target.unlink(missing_ok=True)
-            else:
-                if not source.is_file() or source.is_symlink() or digest(source) != change["after"]:
-                    raise ValueError("Workspace changed after review: " + relative)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                temp = target.with_name(target.name + ".gamedev-office-tmp")
+        try:
+            for change in changes:
+                relative = change["path"]
+                source = workspace / relative
+                target = root / relative
+                if change["action"] == "delete":
+                    if target.is_dir() or target.is_symlink():
+                        raise ValueError("Invalid deletion path: " + relative)
+                    target.unlink(missing_ok=True)
+                else:
+                    if not source.is_file() or source.is_symlink() or digest(source) != change["after"]:
+                        raise ValueError("Workspace changed after review: " + relative)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    temp = target.with_name(target.name + ".gamedev-office-tmp")
+                    try:
+                        shutil.copy2(source, temp)
+                        os.replace(temp, target)
+                    finally:
+                        temp.unlink(missing_ok=True)
+        except Exception as exc:
+            if backup:
                 try:
-                    shutil.copy2(source, temp)
-                    os.replace(temp, target)
-                finally:
-                    temp.unlink(missing_ok=True)
+                    restore_changed(root, backup, changes)
+                except Exception as rollback_exc:
+                    raise RuntimeError("Integration failed; restore manually from " +
+                                       str(backup) + ": " + str(rollback_exc)) from exc
+            raise
         return backup, []
 
 
@@ -151,3 +161,46 @@ def file_preview(root: Path, task_id: str, changes, max_lines=160):
             pass
         lines.append("---")
     return "\n".join(lines)[:40000]
+
+
+def restore_changed(root: Path, archive: Path, changes):
+    """Restore only paths touched by a merge from an earlier checkpoint."""
+    with zipfile.ZipFile(archive, "r") as backup:
+        existing = set(backup.namelist())
+        for item in changes:
+            relative = item["path"]
+            relative_path = Path(relative)
+            if relative_path.is_absolute() or ".." in relative_path.parts or relative.split("/", 1)[0] not in SOURCE_DIRS:
+                raise ValueError("Unsafe backup file path: " + relative)
+            target = Path(root) / relative
+            if any(parent.is_symlink() for parent in (target, *list(target.parents)[:-1])):
+                raise ValueError("Symlink during restore: " + relative)
+            if relative in existing:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                temp = target.with_name(target.name + ".gamedev-office-restore")
+                try:
+                    with backup.open(relative) as source, temp.open("wb") as output:
+                        shutil.copyfileobj(source, output)
+                    os.replace(temp, target)
+                finally:
+                    temp.unlink(missing_ok=True)
+            else:
+                target.unlink(missing_ok=True)
+
+
+def undo_merge(root: Path, task):
+    """Undo one applied task only while its touched files still match the agent version."""
+    if task["status"] != "merged" or not task.get("checkpoint"):
+        raise ValueError("Only applied tasks with a checkpoint can be restored.")
+    with _merge_lock:
+        for item in task.get("changes", []):
+            if digest(Path(root) / item["path"]) != item["after"]:
+                raise ValueError("Current project has newer changes in " + item["path"] +
+                                 "; undo would destroy them.")
+        backup_of_current = checkpoint(Path(root))
+        try:
+            restore_changed(Path(root), Path(task["checkpoint"]), task["changes"])
+        except Exception:
+            restore_changed(Path(root), backup_of_current, task["changes"])
+            raise
+        return backup_of_current
