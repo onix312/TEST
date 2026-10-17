@@ -14,6 +14,7 @@ from PySide6.QtCore import QObject, Signal
 
 from office_core import now
 from workspaces import compute_changes, inspect_conflicts, integrate, provision
+from model_routing import dependency_notes
 
 PROMPT = (
     "You are a Unity C# developer in an ISOLATED COPY of a game project. "
@@ -149,7 +150,9 @@ class AgentManager(QObject):
                 process = subprocess.Popen(argv, cwd=str(workspace), stdout=subprocess.PIPE,
                                            stdin=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                            encoding="utf-8", errors="replace", bufsize=1)
-                process.stdin.write(PROMPT + "ROLE: " + task.get("role", "Developer") + "\n" + task["text"])
+                process.stdin.write(PROMPT + "ROLE: " + task.get("role", "Developer") +
+                                    "\n" + task["text"] + "\n\nDEPENDENCY NOTES:\n" +
+                                    dependency_notes(self.store, task))
                 process.stdin.close()
                 with self.lock:
                     self.processes[task_id] = process
@@ -193,6 +196,8 @@ class AgentManager(QObject):
                 self.status(task_id, "conflict", error="\n".join(conflicts))
                 return
             if self.auto_merge:
+                if not self.review_before_merge(task_id, changes):
+                    return
                 backup, conflict = integrate(self.store.root, task_id, changes)
                 if conflict:
                     self.status(task_id, "conflict", conflicts=conflict, error="\n".join(conflict))
@@ -215,3 +220,7 @@ class AgentManager(QObject):
             raise ValueError("Конфликт с актуальным проектом:\n" + "\n".join(conflicts))
         self.status(task_id, "merged", checkpoint=str(backup or ""), conflicts=[], error="")
         return backup
+
+    def review_before_merge(self, task_id, changes):
+        """Hook for multi-model quality gate. Default: no external review."""
+        return True
