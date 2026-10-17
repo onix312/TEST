@@ -24,6 +24,31 @@ def extract_text(payload):
     return "\n".join(parts)
 
 
+def invoke_model(model, instructions, prompt, *, api_key=None, max_output_tokens=2400):
+    """One bounded Responses API call; output is text and cannot mutate files."""
+    key = (api_key or os.getenv("OPENAI_API_KEY") or "").strip()
+    if not key:
+        raise RuntimeError("ChatGPT API key не задан. Используй ручную передачу через буфер.")
+    body = {"model": model, "instructions": instructions, "input": prompt,
+            "max_output_tokens": max_output_tokens, "store": False}
+    request = urllib.request.Request(
+        ENDPOINT, data=json.dumps(body, ensure_ascii=False).encode("utf-8"), method="POST",
+        headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            data = json.load(response)
+    except urllib.error.HTTPError as exc:
+        # Avoid exposing request contents or credentials in UI logs.
+        raise RuntimeError("OpenAI API HTTP " + str(exc.code) +
+                           ". Проверь доступ к модели и баланс API.") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError("OpenAI API недоступен: " + str(exc.reason)) from exc
+    result = extract_text(data)
+    if not result.strip():
+        raise RuntimeError("Модель вернула пустой ответ; попробуй увеличить лимит.")
+    return result
+
+
 def chat(model, messages, gdd="", *, purpose="design", api_key=None):
     key = (api_key or os.getenv("OPENAI_API_KEY", "")).strip()
     if not key:
@@ -45,7 +70,7 @@ def chat(model, messages, gdd="", *, purpose="design", api_key=None):
             "until the user explicitly approves them. Distinguish proposals from accepted "
             "decisions. Respond in Russian. Existing approved GDD:\n" + gdd[:45000]
         )
-    body = {"model": model or "gpt-5.1",
+    body = {"model": model or "gpt-6.1-sol",
             "instructions": instructions,
             "input": [{"role": m["role"], "content": m["content"][:12000]}
                       for m in messages[-16:]],
