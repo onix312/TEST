@@ -109,6 +109,21 @@ namespace GameDevAIOffice
             Debug.Log("GameDev AI Office: scene report exported");
         }
 
+        [MenuItem("Tools/GameDev AI Office/Capture Playtest Screenshot")]
+        public static void CapturePlaytest()
+        {
+            if (!EditorApplication.isPlaying)
+            {
+                Debug.LogWarning("Enter Play Mode before capturing screenshots.");
+                return;
+            }
+            var path = Path.Combine(OfficeFolder, "reports");
+            Directory.CreateDirectory(path);
+            var file = Path.Combine(path, "playtest-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + ".png");
+            ScreenCapture.CaptureScreenshot(file);
+            Debug.Log("Playtest screenshot requested: " + file);
+        }
+
         [MenuItem("Tools/GameDev AI Office/Build Windows")]
         public static void BuildWindows()
         {
