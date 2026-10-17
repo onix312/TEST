@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import threading
@@ -89,7 +90,12 @@ class AgentManager(QObject):
         for process in processes:
             try:
                 if process.poll() is None:
-                    process.terminate()
+                    if os.name == "nt":
+                        subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                       timeout=10, check=False)
+                    else:
+                        process.terminate()
             except OSError:
                 pass
 
@@ -130,6 +136,10 @@ class AgentManager(QObject):
         task = self.store.find(task_id)
         try:
             workspace = provision(self.store.root, task_id, self.store.gdd())
+            if self.cancel.is_set():
+                self.status(task_id, "interrupted", workspace=str(workspace),
+                            error="Остановлено после создания рабочей копии")
+                return
             self.status(task_id, "running", workspace=str(workspace))
             logfile = self.store.folder / "logs" / (task_id + ".jsonl")
             argv = codex_args(executable, workspace, task["text"])
