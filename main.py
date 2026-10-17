@@ -359,6 +359,15 @@ class Office(QMainWindow):
         if key:
             self._api_key = key
             self.api_key.clear()
+        if self.manager is not None and not self.manager.running:
+            self.manager.api_key = self._api_key or os.getenv("OPENAI_API_KEY", "").strip()
+            self.manager.models.update({
+                "fast": prefs["model_fast"], "balanced": prefs["model_balanced"],
+                "deep": prefs["model_deep"], "review": prefs["model_review"],
+            })
+            self.manager.review_enabled = prefs["review_enabled"]
+            self.manager.auto_merge = prefs["auto_merge"]
+            self.manager.workers = prefs["workers"]
         return prefs
 
     def attach_project(self):
@@ -500,6 +509,8 @@ class Office(QMainWindow):
             task = self.store.find(self.selected_id)
             if not task:
                 raise ValueError("Выбери простую ChatGPT-задачу из списка.")
+            if self.manager.running:
+                raise RuntimeError("Останови оркестр перед ручной передачей задачи.")
             if task["status"] not in ("queued", "handoff", "failed"):
                 raise ValueError("Можно передать только ожидающую ChatGPT-задачу.")
             prompt = self.manager.handoff_prompt(task["id"])
