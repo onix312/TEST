@@ -461,8 +461,12 @@ class Office(QMainWindow):
         self.selected_id = item.data(Qt.ItemDataRole.UserRole)
         task = self.store.find(self.selected_id)
         if task:
+            predicted_backend, predicted_model, predicted_reason = classify(
+                task["text"], task.get("route", "auto"),
+                self.manager.models if self.manager else {})
             report = [
                 "ID: " + task["id"], "Роль: " + task["role"],
+                "Плановый исполнитель: " + predicted_model + " — " + predicted_reason,
                 "Статус: " + STATUS_LABELS.get(task["status"], task["status"]),
                 "Маршрут: " + task.get("route", "auto"),
                 "Исполнитель: " + task.get("backend", "не определён"),
@@ -777,7 +781,9 @@ class Office(QMainWindow):
             for entry in plan:
                 title, deps, route = (entry[0], entry[1],
                                       entry[2] if len(entry) > 2 else "auto")
-                task = store.add(title, depends=[created[n] for n in deps], route=route)
+                role = "Game Analyst" if route.startswith("chatgpt_") else "Gameplay Developer"
+                task = store.add(title, depends=[created[n] for n in deps],
+                                 route=route, role=role)
                 created.append(task["id"])
             self.task_prompt.clear()
             self.refresh_tasks()
