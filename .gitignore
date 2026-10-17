@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.ai-office/
+Library/
+Temp/
+Logs/
