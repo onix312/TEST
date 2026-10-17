@@ -102,7 +102,7 @@ class Office(QMainWindow):
         self.project_path.setText(self.prefs.get("project") or "")
         self.unity_path.setText(self.prefs.get("unity") or "")
         self.codex_path.setText(self.prefs.get("codex") or detect_codex())
-        self.model_name.setText(self.prefs.get("model") or "gpt-5.1")
+        self.model_name.setText(self.prefs.get("model") or "gpt-6.1-sol")
         self.worker_count.setValue(int(self.prefs.get("workers") or 2))
         self.fast_model.setText(self.prefs.get("model_fast") or FAST)
         self.balanced_model.setText(self.prefs.get("model_balanced") or BALANCED)
@@ -489,6 +489,64 @@ class Office(QMainWindow):
             self.selected_id = item["id"]
             self.task_prompt.clear()
             self.refresh_tasks()
+        except Exception as exc:
+            self.alert(exc)
+
+
+    def copy_task_handoff(self):
+        """No API key required: user sends a scoped text task in existing ChatGPT."""
+        try:
+            self.require_project()
+            task = self.store.find(self.selected_id)
+            if not task:
+                raise ValueError("Выбери простую ChatGPT-задачу из списка.")
+            if task["status"] not in ("queued", "handoff", "failed"):
+                raise ValueError("Можно передать только ожидающую ChatGPT-задачу.")
+            prompt = self.manager.handoff_prompt(task["id"])
+            QApplication.clipboard().setText(prompt)
+            self.store.update(task["id"], status="handoff", backend="chatgpt",
+                              error="Скопировано в буфер. Вставь ответ ChatGPT обратно.")
+            self.refresh_tasks()
+            self.write_log("Задание скопировано. Отправь его в ChatGPT, затем скопируй ответ.")
+        except Exception as exc:
+            self.alert(exc)
+
+    def finish_chatgpt_handoff(self):
+        try:
+            self.require_project()
+            task = self.store.find(self.selected_id)
+            if not task or task["status"] != "handoff":
+                raise ValueError("Выбери задачу в статусе «ЖДЁТ CHATGPT».")
+            answer = QApplication.clipboard().text().strip()
+            if not answer:
+                raise ValueError("Сначала скопируй ответ ChatGPT.")
+            if QMessageBox.question(
+                    self, "Результат ChatGPT",
+                    "Сохранить этот ответ как результат задачи? GDD не будет изменён.") != QMessageBox.StandardButton.Yes:
+                return
+            self.manager.finish_text_task(task["id"], answer)
+            self.refresh_tasks()
+            self.write_log("Ответ ChatGPT сохранён; можно запустить следующие задачи.")
+        except Exception as exc:
+            self.alert(exc)
+
+    def result_to_codex(self):
+        """Create an explicit code task rather than letting a text model edit Unity."""
+        try:
+            self.require_project()
+            task = self.store.find(self.selected_id)
+            if not task or task["status"] != "merged" or task.get("backend") != "chatgpt":
+                raise ValueError("Выбери завершённую текстовую задачу ChatGPT.")
+            prompt = ("Применить результат предыдущего ChatGPT-анализа при реализации "
+                      "утверждённого Unity GDD. Не принимать предложенные новые правила "
+                      "игры без согласования. Напиши необходимые Unity C# скрипты "
+                      "и файлы проекта, если они следуют утверждённому GDD. "
+                      "Если это только аналитическая записка — сообщи, что писать код не требуется.")
+            created = self.store.add(prompt, depends=[task["id"]], role="Gameplay Developer",
+                                     route="codex")
+            self.selected_id = created["id"]
+            self.refresh_tasks()
+            self.write_log("Создана Codex-задача на основе отчёта ChatGPT.")
         except Exception as exc:
             self.alert(exc)
 
