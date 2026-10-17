@@ -18,7 +18,9 @@ from PySide6.QtWidgets import (
 
 from office_core import (ProjectStore, atomic_json, detect_codex, detect_unity,
                          load_settings, save_settings, validate_project)
-from agents import AgentManager, codex_args
+from agents import codex_args
+from orchestra import ModelOrchestrator
+from model_routing import ROUTES, FAST, BALANCED, DEEP, classify
 from director import DesignerHistory, chat, make_plan, parse_plan
 from pixel_office import MiniIsland, PixelOffice
 from unity_integration import UnityRunner, bridge_install, unity_locked
@@ -27,7 +29,8 @@ from workspaces import file_preview, undo_merge
 STATUS_LABELS = {
     "queued": "ОЧЕРЕДЬ", "running": "РАБОТАЕТ", "ready": "НА ПРОВЕРКЕ",
     "merged": "ГОТОВО", "conflict": "КОНФЛИКТ", "failed": "ОШИБКА",
-    "interrupted": "ПРЕРВАНО", "cancelled": "ОТМЕНЕНО", "rolled_back": "ОТКАТ"
+    "interrupted": "ПРЕРВАНО", "cancelled": "ОТМЕНЕНО", "rolled_back": "ОТКАТ",
+    "handoff": "ЖДЁТ CHATGPT"
 }
 
 
@@ -101,6 +104,11 @@ class Office(QMainWindow):
         self.codex_path.setText(self.prefs.get("codex") or detect_codex())
         self.model_name.setText(self.prefs.get("model") or "gpt-5.1")
         self.worker_count.setValue(int(self.prefs.get("workers") or 2))
+        self.fast_model.setText(self.prefs.get("model_fast") or FAST)
+        self.balanced_model.setText(self.prefs.get("model_balanced") or BALANCED)
+        self.deep_model.setText(self.prefs.get("model_deep") or DEEP)
+        self.review_model.setText(self.prefs.get("model_review") or BALANCED)
+        self.review_enabled.setChecked(bool(self.prefs.get("review_enabled", False)))
         self.auto_merge.setChecked(bool(self.prefs.get("auto_merge", True)))
         self.mini_toggle.setChecked(bool(self.prefs.get("mini", False)))
         self.toggle_island(self.mini_toggle.isChecked())
@@ -160,8 +168,12 @@ class Office(QMainWindow):
         self.depends = QComboBox()
         self.agent_role = QComboBox()
         self.agent_role.addItems(["Gameplay Developer", "Systems Developer", "UI Developer",
-                                  "Unity Tools Developer", "QA / Bugfix"])
-        box.addLayout(row("Специализация:", self.agent_role, "После задачи:", self.depends))
+                                  "Unity Tools Developer", "QA / Bugfix", "Game Analyst", "GDD Assistant"])
+        self.task_route = QComboBox()
+        for key, value in ROUTES.items():
+            self.task_route.addItem(value, key)
+        box.addLayout(row("Специализация:", self.agent_role, "Исполнитель:", self.task_route))
+        box.addLayout(row("После задачи:", self.depends))
         commands = QHBoxLayout()
         commands.addWidget(button("Добавить задачу", self.add_task))
         commands.addWidget(button("AI → план", self.plan_task))
@@ -183,6 +195,11 @@ class Office(QMainWindow):
         commands.addWidget(button("Откатить задачу", self.undo_task))
         commands.addWidget(button("Папка агента", self.open_agent_folder))
         box.addLayout(commands)
+        chatgpt_commands = QHBoxLayout()
+        chatgpt_commands.addWidget(button("Задание → ChatGPT", self.copy_task_handoff))
+        chatgpt_commands.addWidget(button("Ответ ChatGPT ← буфер", self.finish_chatgpt_handoff))
+        chatgpt_commands.addWidget(button("Результат → задача Codex", self.result_to_codex))
+        box.addLayout(chatgpt_commands)
         self.tabs.addTab(panel, "⌘  Codex Agents")
 
     def make_gdd_tab(self):
@@ -257,6 +274,11 @@ class Office(QMainWindow):
         self.unity_path = QLineEdit()
         self.codex_path = QLineEdit()
         self.model_name = QLineEdit()
+        self.fast_model = QLineEdit()
+        self.balanced_model = QLineEdit()
+        self.deep_model = QLineEdit()
+        self.review_model = QLineEdit()
+        self.review_enabled = QCheckBox("Проверять изменения Codex отдельной моделью до автоприменения")
         self.api_key = QLineEdit()
         self.api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_key.setPlaceholderText("Не сохраняется на диск; либо задай OPENAI_API_KEY")
@@ -272,6 +294,11 @@ class Office(QMainWindow):
         form.addRow("Применение", self.auto_merge)
         form.addRow("Мини-панель", self.mini_toggle)
         form.addRow("Модель Game Designer", self.model_name)
+        form.addRow("ChatGPT быстрый • Luna", self.fast_model)
+        form.addRow("ChatGPT аналитик • Sol", self.balanced_model)
+        form.addRow("ChatGPT сложный • Astra", self.deep_model)
+        form.addRow("ChatGPT ревьюер", self.review_model)
+        form.addRow("AI-ревью перед слиянием", self.review_enabled)
         form.addRow("OpenAI API ключ (опция)", self.api_key)
         box.addLayout(form)
         box.addWidget(button("Сохранить и подключить проект", self.configure))
@@ -319,7 +346,12 @@ class Office(QMainWindow):
             "workers": self.worker_count.value(),
             "auto_merge": self.auto_merge.isChecked(),
             "model": self.model_name.text().strip() or "gpt-5.1",
-            "mini": self.mini_toggle.isChecked()
+            "mini": self.mini_toggle.isChecked(),
+            "model_fast": self.fast_model.text().strip() or FAST,
+            "model_balanced": self.balanced_model.text().strip() or BALANCED,
+            "model_deep": self.deep_model.text().strip() or DEEP,
+            "model_review": self.review_model.text().strip() or BALANCED,
+            "review_enabled": self.review_enabled.isChecked(),
         }
         self.prefs = prefs
         save_settings(prefs)
@@ -336,8 +368,12 @@ class Office(QMainWindow):
         if self.is_busy:
             raise RuntimeError("Сначала дождись ответа Game Designer.")
         self.store = ProjectStore(root)
-        self.manager = AgentManager(self.store, self.codex_path.text(),
-                                    self.worker_count.value(), self.auto_merge.isChecked())
+        self.manager = ModelOrchestrator(
+            self.store, self.codex_path.text(), self.worker_count.value(),
+            self.auto_merge.isChecked(), api_key=self._api_key,
+            models={"fast": self.fast_model.text(), "balanced": self.balanced_model.text(),
+                    "deep": self.deep_model.text(), "review": self.review_model.text()},
+            review_enabled=self.review_enabled.isChecked())
         self.manager.activity.connect(self.agent_log)
         self.manager.changed.connect(self.agent_changed)
         self.manager.finished.connect(lambda: self.write_log("Агенты завершили очередь."))
@@ -375,7 +411,8 @@ class Office(QMainWindow):
         self.depends.addItem("Без зависимости", "")
         for task in self.store.tasks:
             self.depends.addItem(task["text"][:75], task["id"])
-            title = STATUS_LABELS.get(task["status"], "?") + "  " + task["text"][:110]
+            backend = task.get("model") or task.get("route", "auto").upper()
+            title = STATUS_LABELS.get(task["status"], "?") + "  [" + backend + "]  " + task["text"][:100]
             item = QListWidgetItem(title)
             item.setData(Qt.ItemDataRole.UserRole, task["id"])
             if task["status"] in ("failed", "conflict"):
@@ -418,6 +455,10 @@ class Office(QMainWindow):
             report = [
                 "ID: " + task["id"], "Роль: " + task["role"],
                 "Статус: " + STATUS_LABELS.get(task["status"], task["status"]),
+                "Маршрут: " + task.get("route", "auto"),
+                "Исполнитель: " + task.get("backend", "не определён"),
+                "Модель: " + task.get("model", "не определена"),
+                "AI-ревью:\n" + task.get("review", ""),
                 "Задача: " + task["text"],
                 "Зависимости: " + (", ".join(task["depends"]) or "нет"),
                 "Рабочая копия: " + task.get("workspace", ""),
@@ -443,7 +484,8 @@ class Office(QMainWindow):
             dependency = self.depends.currentData()
             item = store.add(self.task_prompt.toPlainText(),
                              depends=[dependency] if dependency else [],
-                             role=self.agent_role.currentText())
+                             role=self.agent_role.currentText(),
+                             route=self.task_route.currentData())
             self.selected_id = item["id"]
             self.task_prompt.clear()
             self.refresh_tasks()
@@ -454,14 +496,14 @@ class Office(QMainWindow):
         try:
             self.require_project()
             self.manager.start()
-            self.write_log("Codex agents started.")
+            self.write_log("Оркестр моделей запущен: ChatGPT / Codex.")
         except Exception as exc:
             self.alert(exc)
 
     def stop_agents(self):
         if self.manager:
             self.manager.stop()
-            self.write_log("Остановка агентов запрошена.")
+            self.write_log("Остановка оркестра запрошена.")
 
     def approve_task(self):
         try:
