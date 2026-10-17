@@ -39,7 +39,7 @@ def resolve_codex(command):
 
 def codex_args(executable, root, task):
     return [executable, "exec", "--json", "--skip-git-repo-check",
-            "--sandbox", "workspace-write", "--cd", str(root), PROMPT + task]
+            "--sandbox", "workspace-write", "--cd", str(root), "-"]
 
 
 class AgentManager(QObject):
@@ -136,8 +136,10 @@ class AgentManager(QObject):
             summary = ""
             with logfile.open("w", encoding="utf-8") as log:
                 process = subprocess.Popen(argv, cwd=str(workspace), stdout=subprocess.PIPE,
-                                           stderr=subprocess.STDOUT, text=True,
+                                           stdin=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                            encoding="utf-8", errors="replace", bufsize=1)
+                process.stdin.write(PROMPT + task["text"])
+                process.stdin.close()
                 with self.lock:
                     self.processes[task_id] = process
                 try:
