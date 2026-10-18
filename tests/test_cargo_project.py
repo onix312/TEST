@@ -5,7 +5,7 @@ from pathlib import Path
 
 from office_core import ProjectStore
 from cargo_project import (
-    BASELINE_MARKER, DOCS, PLAN, approved_baseline,
+    BASELINE_MARKER, DOCS, PLAN, activate_next_phase, approved_baseline,
     load_documents, seed_game_project,
 )
 
@@ -42,9 +42,10 @@ class CargoProjectTests(unittest.TestCase):
             len(list((self.store.folder / "gdd" / "reference").iterdir())),
             len(DOCS) + 1)
         self.assertTrue(all(t["status"] == "queued" for t in self.store.tasks))
+        self.assertTrue(all(t["paused"] for t in self.store.tasks))
         self.assertTrue(all(t["route"] == "codex" for t in self.store.tasks))
         self.assertTrue(all(t.get("gdd_refs") for t in self.store.tasks))
-        self.assertEqual([t["seed_key"] for t in self.store.eligible()], ["P0-CORE"])
+        self.assertEqual(list(self.store.eligible()), [])
 
     def test_idempotent_and_preserves_existing_task_state(self):
         seed_game_project(self.store)
@@ -54,8 +55,28 @@ class CargoProjectTests(unittest.TestCase):
         self.assertEqual(second["created"], 0)
         self.assertEqual(len(self.store.tasks), len(PLAN))
         self.assertEqual(first["status"], "merged")
-        self.assertIn("P0-TESTS",
-                      [t["seed_key"] for t in self.store.eligible()])
+        self.assertTrue(all(t["paused"] for t in self.store.tasks[1:]))
+
+    def test_unlocks_only_next_milestone(self):
+        seed_game_project(self.store)
+        first = activate_next_phase(self.store)
+        self.assertEqual(first["phase"], "P0")
+        self.assertEqual(first["released"], 3)
+        self.assertEqual(first["remaining"], 3)
+        self.assertEqual([t["seed_key"] for t in self.store.eligible()], ["P0-CORE"])
+        again = activate_next_phase(self.store)
+        self.assertEqual(again["released"], 0)
+        for task in self.store.tasks:
+            if task["phase"] == "P0":
+                self.store.update(task["id"], status="merged")
+        following = activate_next_phase(self.store)
+        self.assertEqual(following["phase"], "P1")
+        self.assertEqual(following["released"], 3)
+        self.assertTrue(all(t["paused"] for t in self.store.tasks if t["phase"] == "P2"))
+
+    def test_release_requires_approved_baseline(self):
+        with self.assertRaisesRegex(ValueError, "approved DFTC"):
+            activate_next_phase(self.store)
 
     def test_refuses_to_override_other_approved_gdd(self):
         self.store.approve_gdd("# Another approved user's game")
