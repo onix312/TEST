@@ -73,6 +73,7 @@ class Office(QMainWindow):
         self.is_busy = False
         self._api_key = ""
         self.selected_id = None
+        self._seen_task_states = {}
 
         outer = QWidget()
         self.setCentralWidget(outer)
@@ -572,7 +573,15 @@ class Office(QMainWindow):
         self.write_log("[" + task_id + "] " + message)
 
     def agent_changed(self, task_id, status):
+        previous = self._seen_task_states.get(task_id)
+        self._seen_task_states[task_id] = status
         self.write_log("[" + task_id + "] " + STATUS_LABELS.get(status, status))
+        if status in ("conflict", "failed", "handoff", "ready") and previous != status:
+            self.statusBar().showMessage("Нужно внимание: " + STATUS_LABELS.get(status, status), 15000)
+            if self.store:
+                task = self.store.find(task_id)
+                if task and self.selected_id == task_id:
+                    self.office_task.setText(task["text"][:120] + " — " + STATUS_LABELS.get(status, status))
         self.refresh_tasks()
 
     def add_task(self):
