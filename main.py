@@ -176,6 +176,8 @@ class Office(QMainWindow):
         box.addLayout(scene_row, 5)
         self.dashboard = QLabel("Проект не выбран.")
         box.addWidget(self.dashboard)
+        self.unity_pulse = QLabel("UNITY • Ожидание запуска")
+        box.addWidget(self.unity_pulse)
         self.office_command = QLineEdit()
         self.office_command.setPlaceholderText("Поставить задачу на естественном языке...")
         box.addLayout(row(self.office_command,
@@ -505,8 +507,7 @@ class Office(QMainWindow):
         self.manager.finished.connect(lambda: self.write_log("Агенты завершили очередь."))
         self.unity_runner = UnityRunner(root, self.unity_path.text())
         self.unity_runner.output.connect(self.write_log)
-        self.unity_runner.done.connect(lambda action, ok:
-            self.write_log("Unity " + action + ": " + ("готово" if ok else "ошибка")))
+        self.unity_runner.done.connect(self.unity_completed)
         self.history = DesignerHistory(self.store)
         self.designer_messages.setPlainText("\n\n".join(
             m["role"].upper() + ": " + m["content"] for m in self.history.messages[-30:]))
@@ -554,6 +555,11 @@ class Office(QMainWindow):
         self.pixel.select_task(self.selected_id)
         self.island.set_tasks(self.store.tasks)
 
+    def unity_completed(self, action, ok):
+        self.unity_pulse.setText(
+            "UNITY • " + action + " • " + ("ЗАВЕРШЕНО" if ok else "ОШИБКА"))
+        self.write_log("Unity " + action + ": " + ("готово" if ok else "ошибка"))
+
     def refresh_status(self):
         if not self.store:
             return
@@ -568,6 +574,8 @@ class Office(QMainWindow):
             "Требуют решения: " + str(needs_review) + "     "
             "Задач всего: " + str(len(tasks)))
         self.pixel.set_tasks(tasks)
+        if self.unity_runner and self.unity_runner.running:
+            self.unity_pulse.setText("UNITY • идёт операция редактора, подробности в журнале")
         if self.selected_id and self.store.find(self.selected_id):
             current = self.store.find(self.selected_id)
             text = STATUS_LABELS.get(current["status"], current["status"])
