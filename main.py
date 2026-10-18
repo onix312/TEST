@@ -73,6 +73,7 @@ class Office(QMainWindow):
         self.is_busy = False
         self._api_key = ""
         self.selected_id = None
+        self._seen_task_states = {}
 
         outer = QWidget()
         self.setCentralWidget(outer)
@@ -142,20 +143,138 @@ class Office(QMainWindow):
     def make_office_tab(self):
         panel = QWidget()
         box = QVBoxLayout(panel)
-        box.addWidget(QLabel("Анимированный офис • каждый рабочий стол отражает реальный статус Codex"))
+        box.addWidget(QLabel("TOP-DOWN OFFICE  •  Колесо мыши: масштаб  •  Перетаскивание: перемещение  •  Нажатие: задача"))
+        scene_row = QHBoxLayout()
         self.pixel = PixelOffice()
-        box.addWidget(self.pixel)
+        self.pixel.taskSelected.connect(self.open_task_in_office)
+        scene_row.addWidget(self.pixel, 7)
+        detail_panel = QWidget()
+        detail_panel.setMinimumWidth(260)
+        detail_panel.setMaximumWidth(350)
+        detail_box = QVBoxLayout(detail_panel)
+        detail_box.addWidget(QLabel("АГЕНТ / ЗАДАЧА"))
+        self.office_task = QLabel("Нажми на персонажа, чтобы посмотреть его текущую задачу.")
+        self.office_task.setWordWrap(True)
+        detail_box.addWidget(self.office_task)
+        self.office_detail = QPlainTextEdit()
+        self.office_detail.setReadOnly(True)
+        self.office_detail.setPlaceholderText("Здесь появится отчёт, исполнитель, статус и результат.")
+        detail_box.addWidget(self.office_detail, 1)
+        detail_box.addWidget(button("Открыть задачу", self.office_open_agents))
+        detail_box.addWidget(button("Применить выбранные изменения", self.approve_task))
+        detail_box.addWidget(button("Передать ChatGPT", self.copy_task_handoff))
+        self.office_priority = QComboBox()
+        self.office_priority.addItem("Низкий", 1)
+        self.office_priority.addItem("Обычный", 2)
+        self.office_priority.addItem("Высокий", 3)
+        detail_box.addWidget(self.office_priority)
+        detail_box.addWidget(button("Изменить приоритет", self.change_office_priority))
+        detail_box.addWidget(button("Пауза / продолжить задачу", self.toggle_office_pause))
+        detail_box.addWidget(button("История действий", self.show_office_history))
+        detail_box.addStretch()
+        scene_row.addWidget(detail_panel, 3)
+        box.addLayout(scene_row, 5)
         self.dashboard = QLabel("Проект не выбран.")
         box.addWidget(self.dashboard)
-        box.addWidget(QLabel("Планирование и GDD — во вкладке Game Designer. "
-                             "Разработка — во вкладке Agents. Unity — во вкладке Unity."))
+        self.unity_pulse = QLabel("UNITY • Ожидание запуска")
+        box.addWidget(self.unity_pulse)
+        self.office_command = QLineEdit()
+        self.office_command.setPlaceholderText("Поставить задачу на естественном языке...")
+        box.addLayout(row(self.office_command,
+                          button("Поставить задачу", self.queue_from_office),
+                          button("Запустить оркестр", self.start_agents)))
         line = QHBoxLayout()
-        line.addWidget(button("Открыть агентов", lambda: self.tabs.setCurrentIndex(1)))
-        line.addWidget(button("Открыть GDD", lambda: self.tabs.setCurrentIndex(2)))
-        line.addWidget(button("Открыть Unity", lambda: self.tabs.setCurrentIndex(3)))
+        line.addWidget(button("Центрировать камеру", self.pixel.reset_camera))
+        self.links_toggle = QCheckBox("Связи задач")
+        self.links_toggle.setChecked(True)
+        self.links_toggle.toggled.connect(self.pixel.set_connections_visible)
+        line.addWidget(self.links_toggle)
+        self.motion_toggle = QCheckBox("Меньше анимации")
+        self.motion_toggle.toggled.connect(self.pixel.set_reduced_motion)
+        line.addWidget(self.motion_toggle)
+        line.addWidget(button("Агенты и изменения", lambda: self.tabs.setCurrentIndex(1)))
+        line.addWidget(button("Game Designer / GDD", lambda: self.tabs.setCurrentIndex(2)))
+        line.addWidget(button("Unity", lambda: self.tabs.setCurrentIndex(3)))
         box.addLayout(line)
-        box.addStretch()
         self.tabs.addTab(panel, "◈  Pixel Office")
+
+    def open_task_in_office(self, task_id):
+        if not self.store:
+            return
+        task = self.store.find(task_id)
+        if not task:
+            return
+        self.selected_id = task_id
+        self.office_priority.setCurrentIndex(max(0, min(2, int(task.get("priority", 2)) - 1)))
+        self.office_task.setText(
+            (task.get("model") or task.get("role") or "Agent") + "  •  " +
+            STATUS_LABELS.get(task["status"], task["status"]))
+        self.office_detail.setPlainText(
+            "Задача:\n" + task["text"] + "\n\n"
+            "Модель: " + str(task.get("model") or "Авто") + "\n" +
+            "Исполнитель: " + str(task.get("backend") or "в очереди") + "\n" +
+            "Статус: " + STATUS_LABELS.get(task["status"], task["status"]) + "\n" +
+            "Зависимости: " + (", ".join(task.get("depends", [])) or "нет") + "\n\n" +
+            "Отчёт:\n" + (task.get("summary") or "Пока нет результата.")[:12000] +
+            "\n\nОшибки:\n" + (task.get("error") or "нет")[:2000])
+        # Preserve the office scene; the full task is one click away.
+        self.write_log("Выбран агент: " + task_id + ". Открой вкладку Agents для подробностей.")
+
+    def change_office_priority(self):
+        try:
+            self.require_project().set_priority(self.selected_id, self.office_priority.currentData())
+            self.refresh_tasks()
+            self.open_task_in_office(self.selected_id)
+        except Exception as exc:
+            self.alert(exc)
+
+    def toggle_office_pause(self):
+        try:
+            task = self.require_project().find(self.selected_id)
+            if not task:
+                raise ValueError("Сначала выбери задачу.")
+            self.store.set_paused(task["id"], not task.get("paused", False))
+            self.refresh_tasks()
+            self.open_task_in_office(task["id"])
+        except Exception as exc:
+            self.alert(exc)
+
+    def show_office_history(self):
+        try:
+            store = self.require_project()
+            if not self.selected_id:
+                raise ValueError("Сначала выбери задачу.")
+            entries = store.history(self.selected_id)
+            self.office_detail.setPlainText("\n".join(
+                item["time"] + " | " + item["event"] + " | " + item.get("message", "")
+                for item in entries) or "Событий пока нет.")
+        except Exception as exc:
+            self.alert(exc)
+
+    def office_open_agents(self):
+        if not self.selected_id:
+            self.write_log("Для начала выбери персонажа.")
+            return
+        self.tabs.setCurrentIndex(1)
+        for index in range(self.tasks_view.count()):
+            item = self.tasks_view.item(index)
+            if item.data(Qt.ItemDataRole.UserRole) == self.selected_id:
+                self.tasks_view.setCurrentItem(item)
+                break
+
+    def queue_from_office(self):
+        try:
+            self.require_project()
+            prompt = self.office_command.text().strip()
+            if not prompt:
+                raise ValueError("Введи задачу.")
+            task = self.store.add(prompt, route="auto")
+            self.office_command.clear()
+            self.selected_id = task["id"]
+            self.refresh_tasks()
+            self.open_task_in_office(task["id"])
+        except Exception as exc:
+            self.alert(exc)
 
     def make_agents_tab(self):
         panel = QWidget()
@@ -388,8 +507,7 @@ class Office(QMainWindow):
         self.manager.finished.connect(lambda: self.write_log("Агенты завершили очередь."))
         self.unity_runner = UnityRunner(root, self.unity_path.text())
         self.unity_runner.output.connect(self.write_log)
-        self.unity_runner.done.connect(lambda action, ok:
-            self.write_log("Unity " + action + ": " + ("готово" if ok else "ошибка")))
+        self.unity_runner.done.connect(self.unity_completed)
         self.history = DesignerHistory(self.store)
         self.designer_messages.setPlainText("\n\n".join(
             m["role"].upper() + ": " + m["content"] for m in self.history.messages[-30:]))
@@ -434,7 +552,13 @@ class Office(QMainWindow):
         self.tasks_view.blockSignals(False)
         self.select_task()
         self.pixel.set_tasks(self.store.tasks)
+        self.pixel.select_task(self.selected_id)
         self.island.set_tasks(self.store.tasks)
+
+    def unity_completed(self, action, ok):
+        self.unity_pulse.setText(
+            "UNITY • " + action + " • " + ("ЗАВЕРШЕНО" if ok else "ОШИБКА"))
+        self.write_log("Unity " + action + ": " + ("готово" if ok else "ошибка"))
 
     def refresh_status(self):
         if not self.store:
@@ -450,6 +574,15 @@ class Office(QMainWindow):
             "Требуют решения: " + str(needs_review) + "     "
             "Задач всего: " + str(len(tasks)))
         self.pixel.set_tasks(tasks)
+        if self.unity_runner and self.unity_runner.running:
+            self.unity_pulse.setText("UNITY • идёт операция редактора, подробности в журнале")
+        if self.selected_id and self.store.find(self.selected_id):
+            current = self.store.find(self.selected_id)
+            text = STATUS_LABELS.get(current["status"], current["status"])
+            self.office_task.setText((current.get("model") or current.get("role") or "Agent") + " • " + text)
+            self.office_detail.setPlainText(
+                current["text"] + "\n\n" + (current.get("summary") or "Пока нет результата.")[:12000] +
+                "\n\n" + (current.get("error") or ""))
         self.island.set_tasks(tasks)
 
     def select_task(self):
@@ -488,7 +621,15 @@ class Office(QMainWindow):
         self.write_log("[" + task_id + "] " + message)
 
     def agent_changed(self, task_id, status):
+        previous = self._seen_task_states.get(task_id)
+        self._seen_task_states[task_id] = status
         self.write_log("[" + task_id + "] " + STATUS_LABELS.get(status, status))
+        if status in ("conflict", "failed", "handoff", "ready") and previous != status:
+            self.statusBar().showMessage("Нужно внимание: " + STATUS_LABELS.get(status, status), 15000)
+            if self.store:
+                task = self.store.find(task_id)
+                if task and self.selected_id == task_id:
+                    self.office_task.setText(task["text"][:120] + " — " + STATUS_LABELS.get(status, status))
         self.refresh_tasks()
 
     def add_task(self):

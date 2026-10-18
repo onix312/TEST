@@ -119,6 +119,7 @@ class ProjectStore:
         self.folder = prepare(self.root)
         self.tasks_path = self.folder / "tasks.json"
         self.tasks = read_json(self.tasks_path, [])
+        self.events_path = self.folder / "events.jsonl"
         # Crashed agent processes are not resumed silently against an old snapshot.
         touched = False
         for task in self.tasks:
@@ -146,11 +147,48 @@ class ProjectStore:
         task = dict(id=uuid.uuid4().hex[:12], text=prompt, role=role, route=route,
                     backend="", model="", depends=dependencies,
                     status="queued", created=now(), updated=now(), error="", summary="",
-                    review="", workspace="", changes=[], conflicts=[], checkpoint="")
+                    review="", workspace="", changes=[], conflicts=[], checkpoint="",
+                    priority=2, paused=False)
         with self._mutex:
             self.tasks.append(task)
             self.save()
+        self.record(task["id"], "created", prompt[:180])
         return task
+
+    def record(self, task_id, event, message=""):
+        with self._mutex:
+            with self.events_path.open("a", encoding="utf-8") as out:
+                out.write(json.dumps({"time": now(), "task_id": task_id, "event": event,
+                                      "message": str(message)[:1200]}, ensure_ascii=False) + "\n")
+
+    def set_priority(self, task_id, value):
+        if value not in (1, 2, 3):
+            raise ValueError("Приоритет должен быть 1, 2 или 3")
+        result = self.update(task_id, priority=value)
+        self.record(task_id, "priority", str(value))
+        return result
+
+    def set_paused(self, task_id, paused):
+        task = self.find(task_id)
+        if not task or task["status"] != "queued":
+            raise ValueError("Пауза доступна только для задач в очереди.")
+        result = self.update(task_id, paused=bool(paused))
+        self.record(task_id, "paused" if paused else "resumed")
+        return result
+
+    def history(self, task_id, limit=80):
+        if not self.events_path.exists():
+            return []
+        entries = []
+        with self.events_path.open("r", encoding="utf-8") as stream:
+            for line in stream:
+                try:
+                    item = json.loads(line)
+                    if item.get("task_id") == task_id:
+                        entries.append(item)
+                except ValueError:
+                    continue
+        return entries[-limit:]
 
     def find(self, task_id):
         return next((item for item in self.tasks if item["id"] == task_id), None)
@@ -162,6 +200,8 @@ class ProjectStore:
         with self._mutex:
             task.update(fields, updated=now())
             self.save()
+        if "status" in fields:
+            self.record(task_id, "status", str(fields["status"]))
         return task
 
     def reset(self, task_id):
@@ -171,8 +211,9 @@ class ProjectStore:
         return self.update(task_id, status="queued", changes=[], conflicts=[], error="", workspace="")
 
     def eligible(self):
-        for task in self.tasks:
-            if task["status"] != "queued":
+        ranked = sorted(self.tasks, key=lambda t: (-int(t.get("priority", 2)), t.get("created", "")))
+        for task in ranked:
+            if task["status"] != "queued" or task.get("paused", False):
                 continue
             predecessors = [self.find(x) for x in task["depends"]]
             if all(prev and prev["status"] == "merged" for prev in predecessors):
