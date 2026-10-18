@@ -142,20 +142,56 @@ class Office(QMainWindow):
     def make_office_tab(self):
         panel = QWidget()
         box = QVBoxLayout(panel)
-        box.addWidget(QLabel("Анимированный офис • каждый рабочий стол отражает реальный статус Codex"))
+        box.addWidget(QLabel("TOP-DOWN OFFICE  •  Колесо мыши: масштаб  •  Перетаскивание: перемещение  •  Нажатие: задача"))
         self.pixel = PixelOffice()
-        box.addWidget(self.pixel)
+        self.pixel.taskSelected.connect(self.open_task_in_office)
+        box.addWidget(self.pixel, 5)
         self.dashboard = QLabel("Проект не выбран.")
         box.addWidget(self.dashboard)
-        box.addWidget(QLabel("Планирование и GDD — во вкладке Game Designer. "
-                             "Разработка — во вкладке Agents. Unity — во вкладке Unity."))
+        self.office_task = QLabel("Нажми на персонажа, чтобы посмотреть его текущую задачу.")
+        self.office_task.setWordWrap(True)
+        self.office_task.setMinimumHeight(42)
+        box.addWidget(self.office_task)
+        self.office_command = QLineEdit()
+        self.office_command.setPlaceholderText("Поставить задачу на естественном языке...")
+        box.addLayout(row(self.office_command,
+                          button("Поставить задачу", self.queue_from_office),
+                          button("Запустить оркестр", self.start_agents)))
         line = QHBoxLayout()
-        line.addWidget(button("Открыть агентов", lambda: self.tabs.setCurrentIndex(1)))
-        line.addWidget(button("Открыть GDD", lambda: self.tabs.setCurrentIndex(2)))
-        line.addWidget(button("Открыть Unity", lambda: self.tabs.setCurrentIndex(3)))
+        line.addWidget(button("Центрировать камеру", self.pixel.reset_camera))
+        line.addWidget(button("Агенты и изменения", lambda: self.tabs.setCurrentIndex(1)))
+        line.addWidget(button("Game Designer / GDD", lambda: self.tabs.setCurrentIndex(2)))
+        line.addWidget(button("Unity", lambda: self.tabs.setCurrentIndex(3)))
         box.addLayout(line)
-        box.addStretch()
         self.tabs.addTab(panel, "◈  Pixel Office")
+
+    def open_task_in_office(self, task_id):
+        if not self.store:
+            return
+        task = self.store.find(task_id)
+        if not task:
+            return
+        self.selected_id = task_id
+        self.office_task.setText(
+            (task.get("model") or task.get("role") or "Agent") + "  •  " +
+            STATUS_LABELS.get(task["status"], task["status"]) + "  •  " +
+            task["text"][:220])
+        # Preserve the office scene; the full task is one click away.
+        self.write_log("Выбран агент: " + task_id + ". Открой вкладку Agents для подробностей.")
+
+    def queue_from_office(self):
+        try:
+            self.require_project()
+            prompt = self.office_command.text().strip()
+            if not prompt:
+                raise ValueError("Введи задачу.")
+            task = self.store.add(prompt, route="auto")
+            self.office_command.clear()
+            self.selected_id = task["id"]
+            self.refresh_tasks()
+            self.open_task_in_office(task["id"])
+        except Exception as exc:
+            self.alert(exc)
 
     def make_agents_tab(self):
         panel = QWidget()
@@ -434,6 +470,7 @@ class Office(QMainWindow):
         self.tasks_view.blockSignals(False)
         self.select_task()
         self.pixel.set_tasks(self.store.tasks)
+        self.pixel.select_task(self.selected_id)
         self.island.set_tasks(self.store.tasks)
 
     def refresh_status(self):
