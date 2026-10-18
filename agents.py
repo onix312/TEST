@@ -18,7 +18,9 @@ from model_routing import dependency_notes
 
 PROMPT = (
     "You are a Unity C# developer in an ISOLATED COPY of a game project. "
-    "Read .ai-office/gdd/approved.md before editing. Implement only approved design; "
+    "Read .ai-office/gdd/approved.md before editing. If available, also read "
+    "the detailed materials under .ai-office/gdd/reference/ as needed for this "
+    "task, especially System Design and Production QA. Implement only approved design; "
     "do not change the GDD or invent game rules. Only modify Assets/, Packages/, "
     "ProjectSettings/ and preserve Unity .meta files and their GUIDs. "
     "Never modify production paths outside this workspace. Do not install software, "
@@ -189,7 +191,13 @@ class AgentManager(QObject):
                 return
             changes = compute_changes(self.store.root, task_id)
             if not changes:
-                self.status(task_id, "merged", summary=summary or "Нет изменений файлов", changes=[])
+                if task.get("seed_key"):
+                    self.status(task_id, "ready", summary=summary or "Файлы не изменены",
+                                changes=[], review="DFTC: без изменений файлов. Нужна ручная проверка, "
+                                                   "прежде чем закрыть этап.",
+                                error="Задача не подтверждена: нет изменений исходников.")
+                else:
+                    self.status(task_id, "merged", summary=summary or "Нет изменений файлов", changes=[])
                 return
             conflicts = inspect_conflicts(self.store.root, changes)
             self.status(task_id, "ready", changes=changes, conflicts=conflicts, summary=summary)
