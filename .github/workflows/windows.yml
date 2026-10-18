@@ -1,8 +1,14 @@
 name: Windows portable and installer
 on:
   push:
-    branches: [feature/gamedev-ai-office]
+    branches: [main, "feature/**"]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   windows-build:
     runs-on: windows-latest
@@ -17,7 +23,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pyinstaller
       - name: Package executable and Unity Bridge
-        run: pyinstaller --noconfirm --clean --windowed --name GameDevAIOffice --add-data "unity_bridge;unity_bridge" main.py
+        run: pyinstaller --noconfirm --clean --windowed --name GameDevAIOffice --add-data "unity_bridge;unity_bridge" --add-data "docs;docs" main.py
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
       - name: Make Windows setup

@@ -38,15 +38,27 @@ def unity_locked(root):
     return (root / "Temp" / "UnityLockfile").exists()
 
 
-def test_report(path):
+def test_report_status(path):
+    """Read fresh NUnit/Unity test XML as a QA gate, not just a printable label."""
     try:
-        tree = ET.parse(path)
-        root = tree.getroot()
-        return ("Tests: total={total}, passed={passed}, failed={failed}, skipped={skipped}".format(
-            total=root.attrib.get("total", "?"), passed=root.attrib.get("passed", "?"),
-            failed=root.attrib.get("failed", "?"), skipped=root.attrib.get("skipped", "?")))
-    except (ET.ParseError, OSError):
-        return "Отчёт отсутствует или ещё не готов: " + str(path)
+        root = ET.parse(path).getroot()
+        counts = {key: int(root.attrib.get(key, "-1"))
+                  for key in ("total", "passed", "failed", "skipped")}
+        result = root.attrib.get("result", "").lower()
+        text = ("Tests: total={total}, passed={passed}, failed={failed}, skipped={skipped}"
+                .format(**counts))
+        good = (counts["total"] > 0 and counts["passed"] > 0 and
+                counts["failed"] == 0 and
+                counts["passed"] + counts["skipped"] == counts["total"] and
+                result not in ("failed", "inconclusive", "error"))
+        return good, text
+    except (ET.ParseError, OSError, ValueError, TypeError):
+        return False, "Отчёт тестов отсутствует или повреждён: " + str(path)
+
+
+def test_report(path):
+    """Compatibility helper for UI and existing callers."""
+    return test_report_status(path)[1]
 
 
 class UnityRunner(QObject):
@@ -75,13 +87,13 @@ class UnityRunner(QObject):
             raise RuntimeError("Unity уже открыл этот проект. Закрой редактор и повтори.")
         report_dir = self.root / ".ai-office" / "reports"
         report_dir.mkdir(parents=True, exist_ok=True)
-        tag = datetime.now().strftime("%Y%m%d-%H%M%S")
+        tag = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         logfile = report_dir / (action + "-" + tag + ".log")
         cmd = [self.unity_exe, "-batchmode", "-nographics", "-quit",
                "-projectPath", str(self.root), "-logFile", str(logfile)]
         if action in ("editmode", "playmode"):
             cmd += ["-runTests", "-testPlatform", "EditMode" if action == "editmode" else "PlayMode",
-                    "-testResults", str(report_dir / (action + ".xml"))]
+                    "-testResults", str(logfile.with_suffix(".xml"))]
         else:
             cmd += ["-executeMethod", METHODS[action]]
         self.worker = threading.Thread(target=self._run, args=(action, cmd, logfile),
@@ -98,7 +110,9 @@ class UnityRunner(QObject):
             success = code == 0
             self.output.emit("Unity exit code: " + str(code) + " | " + str(logfile))
             if action in ("editmode", "playmode"):
-                self.output.emit(test_report(self.root / ".ai-office" / "reports" / (action + ".xml")))
+                passed, report = test_report_status(logfile.with_suffix(".xml"))
+                self.output.emit(report)
+                success = success and passed
         except OSError as exc:
             self.output.emit("Unity error: " + str(exc))
         finally:
