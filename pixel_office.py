@@ -259,10 +259,19 @@ class PixelOffice(QWidget):
         for x in (47, 907):
             self._rect(p, x, 106, 22, 42, "#765a58", 5)
             self._rect(p, x - 5, 96, 31, 26, PALETTE["plant"], 13)
-        statuses = [t for t in self.tasks if t.get("status") in
-                    ("running", "ready", "conflict", "handoff", "failed")]
-        statuses += [t for t in self.tasks if t.get("status") in ("queued", "merged", "interrupted")]
+        statuses = self.visible_tasks()
         self.hits = []
+        waiting = [t for t in self.tasks if t.get("status") == "queued"]
+        self._rect(p, 82, 91, 788, 31, "#30263e", 6)
+        self._label(p, 91, 111, "QUEUE", 10, "#dbc0ec", True)
+        for n, job in enumerate(waiting[:5]):
+            xq = 170 + n * 134
+            self._rect(p, xq, 95, 127, 23,
+                       "#876c9e" if job["id"] == self.chosen else "#554361", 4)
+            self._label(p, xq + 5, 111, job["text"][:13], 9, "#f2e5f4")
+            self.hits.append((QRectF(xq, 95, 127, 23), job["id"]))
+        if len(waiting) > 5:
+            self._label(p, 850, 111, "+" + str(len(waiting)-5), 9)
         for i, (x, y) in enumerate(SEATS):
             if i < 4:
                 self._desk(p, x, y, i)
@@ -270,7 +279,9 @@ class PixelOffice(QWidget):
             status = task.get("status", "idle") if task else "idle"
             color = PALETTE.get(status, PALETTE["idle"])
             if task:
-                self._avatar(p, x, y, status == "running",
+                actor = self.walkers.get(task["id"])
+                ax, ay = actor["pos"] if actor else (x, y)
+                self._avatar(p, ax, ay, status == "running",
                              "#8762be" if task.get("backend") == "chatgpt" else "#6baab1")
                 label = self._agent_model(task)
                 self._rect(p, x - 76, y + 79, 152, 42, "#2c2637", 8)
@@ -279,6 +290,7 @@ class PixelOffice(QWidget):
                 self._label(p, x - 56, y + 112, status.upper()[:15], 10, color, True)
                 hit = QRectF(x - 82, y - 78, 164, 203)
                 self.hits.append((hit, task["id"]))
+                self.hits.append((QRectF(ax-24, ay+22, 48, 48), task["id"]))
                 if task["id"] == self.chosen:
                     p.setPen(QPen(QColor("#e8cbff"), 4))
                     p.setBrush(Qt.BrushStyle.NoBrush)
