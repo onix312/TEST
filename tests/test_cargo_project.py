@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from office_core import ProjectStore
+from workspaces import provision
 from cargo_project import (
     BASELINE_MARKER, DOCS, PLAN, activate_next_phase, approved_baseline,
     load_documents, seed_game_project,
@@ -77,6 +78,15 @@ class CargoProjectTests(unittest.TestCase):
     def test_release_requires_approved_baseline(self):
         with self.assertRaisesRegex(ValueError, "approved DFTC"):
             activate_next_phase(self.store)
+
+    def test_isolated_codex_workspace_receives_complete_approved_reference(self):
+        seed_game_project(self.store)
+        workspace = provision(self.root, "test-copy-docs", self.store.gdd())
+        reference = workspace / ".ai-office" / "gdd" / "reference"
+        self.assertTrue((reference / "02-SYSTEM-DESIGN.md").is_file())
+        self.assertTrue((reference / "DECISIONS-001-100.md").is_file())
+        self.assertTrue((reference / "ROADMAP-UNITY-CODEX.md").is_file())
+        self.assertTrue((workspace / ".ai-office" / "gdd" / "approved.md").is_file())
 
     def test_refuses_to_override_other_approved_gdd(self):
         self.store.approve_gdd("# Another approved user's game")
