@@ -163,6 +163,14 @@ class Office(QMainWindow):
         detail_box.addWidget(button("Открыть задачу", self.office_open_agents))
         detail_box.addWidget(button("Применить выбранные изменения", self.approve_task))
         detail_box.addWidget(button("Передать ChatGPT", self.copy_task_handoff))
+        self.office_priority = QComboBox()
+        self.office_priority.addItem("Низкий", 1)
+        self.office_priority.addItem("Обычный", 2)
+        self.office_priority.addItem("Высокий", 3)
+        detail_box.addWidget(self.office_priority)
+        detail_box.addWidget(button("Изменить приоритет", self.change_office_priority))
+        detail_box.addWidget(button("Пауза / продолжить задачу", self.toggle_office_pause))
+        detail_box.addWidget(button("История действий", self.show_office_history))
         detail_box.addStretch()
         scene_row.addWidget(detail_panel, 3)
         box.addLayout(scene_row, 5)
@@ -195,6 +203,7 @@ class Office(QMainWindow):
         if not task:
             return
         self.selected_id = task_id
+        self.office_priority.setCurrentIndex(max(0, min(2, int(task.get("priority", 2)) - 1)))
         self.office_task.setText(
             (task.get("model") or task.get("role") or "Agent") + "  •  " +
             STATUS_LABELS.get(task["status"], task["status"]))
@@ -208,6 +217,37 @@ class Office(QMainWindow):
             "\n\nОшибки:\n" + (task.get("error") or "нет")[:2000])
         # Preserve the office scene; the full task is one click away.
         self.write_log("Выбран агент: " + task_id + ". Открой вкладку Agents для подробностей.")
+
+    def change_office_priority(self):
+        try:
+            self.require_project().set_priority(self.selected_id, self.office_priority.currentData())
+            self.refresh_tasks()
+            self.open_task_in_office(self.selected_id)
+        except Exception as exc:
+            self.alert(exc)
+
+    def toggle_office_pause(self):
+        try:
+            task = self.require_project().find(self.selected_id)
+            if not task:
+                raise ValueError("Сначала выбери задачу.")
+            self.store.set_paused(task["id"], not task.get("paused", False))
+            self.refresh_tasks()
+            self.open_task_in_office(task["id"])
+        except Exception as exc:
+            self.alert(exc)
+
+    def show_office_history(self):
+        try:
+            store = self.require_project()
+            if not self.selected_id:
+                raise ValueError("Сначала выбери задачу.")
+            entries = store.history(self.selected_id)
+            self.office_detail.setPlainText("\n".join(
+                item["time"] + " | " + item["event"] + " | " + item.get("message", "")
+                for item in entries) or "Событий пока нет.")
+        except Exception as exc:
+            self.alert(exc)
 
     def office_open_agents(self):
         if not self.selected_id:
