@@ -21,7 +21,7 @@ from office_core import (ProjectStore, atomic_json, detect_codex, detect_unity,
 from agents import codex_args
 from orchestra import ModelOrchestrator
 from model_routing import ROUTES, FAST, BALANCED, DEEP, classify
-from cargo_project import BASELINE_MARKER, PLAN, seed_game_project
+from cargo_project import BASELINE_MARKER, PLAN, activate_next_phase, seed_game_project
 from director import DesignerHistory, chat, make_plan, parse_plan
 from pixel_office import MiniIsland, PixelOffice
 from unity_integration import UnityRunner, bridge_install, unity_locked
@@ -331,6 +331,7 @@ class Office(QMainWindow):
         commands.addWidget(button("Скопировать запрос для ChatGPT", self.copy_handoff))
         commands.addWidget(button("Импорт Markdown", self.import_gdd))
         commands.addWidget(button("Do Not Feed the Cargo → GDD + очередь", self.seed_cargo_game))
+        commands.addWidget(button("DFTC → открыть следующий этап", self.unlock_cargo_phase))
         commands.addWidget(button("GDD из буфера", self.gdd_from_clipboard))
         commands.addWidget(button("Утвердить содержимое редактора", self.approve_gdd))
         box.addLayout(commands)
@@ -812,6 +813,30 @@ class Office(QMainWindow):
             self.statusBar().showMessage(
                 "Очередь подготовлена. Запуск и применение — только после проверок.",
                 12000)
+        except Exception as exc:
+            self.alert(exc)
+
+    def unlock_cargo_phase(self):
+        """Release the next bounded work phase, no Codex launch."""
+        try:
+            store = self.require_project()
+            if (self.manager and self.manager.running) or (
+                    self.unity_runner and self.unity_runner.running):
+                raise RuntimeError("Заверши работающие операции перед открытием этапа.")
+            result = activate_next_phase(store)
+            self.refresh_tasks()
+            if result["complete"]:
+                self.write_log("DFTC: все этапы завершены по реестру задач.")
+                return
+            self.write_log(
+                "DFTC " + result["phase"] + ": открыто "
+                + str(result["released"]) + " задач; осталось в этапе "
+                + str(result["remaining"]) + ".")
+            self.statusBar().showMessage(
+                "Этап " + result["phase"] + " доступен. "
+                "Задачи выполнятся только после ручного запуска оркестра.",
+                12000)
+            self.tabs.setCurrentIndex(1)
         except Exception as exc:
             self.alert(exc)
 
