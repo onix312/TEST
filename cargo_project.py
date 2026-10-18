@@ -132,10 +132,17 @@ def load_documents(root: Path | None = None) -> dict[str, str]:
             dependency not in keys for item in PLAN for dependency in item.depends):
         raise ValueError("Invalid task plan or unresolved dependency.")
     seen = set()
+    covered_decisions: set[int] = set()
     for item in PLAN:
         if not set(item.depends) <= seen:
             raise ValueError("Task dependencies must reference earlier tasks: " + item.key)
+        refs = {int(token) for token in item.gdd.split(",")}
+        if not refs or not refs <= set(range(1, 101)):
+            raise ValueError("Invalid GDD references in " + item.key)
+        covered_decisions.update(refs)
         seen.add(item.key)
+    if covered_decisions != set(range(1, 101)):
+        raise ValueError("Alpha roadmap does not map every approved GDD decision.")
     return result
 
 
