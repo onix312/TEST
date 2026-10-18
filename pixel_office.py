@@ -73,7 +73,32 @@ class PixelOffice(QWidget):
 
     def set_tasks(self, tasks):
         self.tasks = [dict(t) for t in tasks]
+        visible = self.visible_tasks()
+        current = set()
+        for i, task in enumerate(visible[:len(SEATS)]):
+            task_id = task["id"]
+            current.add(task_id)
+            target = self.destination(i, task)
+            actor = self.walkers.setdefault(task_id, {"pos": (470, 350), "target": target})
+            actor["target"] = target
+            if self.reduced_motion:
+                actor["pos"] = target
+        self.walkers = {key: val for key, val in self.walkers.items() if key in current}
         self.update()
+
+    def visible_tasks(self):
+        priority = ("running", "ready", "conflict", "handoff",
+                    "failed", "queued", "merged", "interrupted")
+        return sorted(self.tasks, key=lambda item:
+                      priority.index(item.get("status")) if item.get("status") in priority
+                      else len(priority))
+
+    def destination(self, slot, task):
+        if task.get("status") == "handoff":
+            return (350 + (slot % 2) * 65, 485)
+        if task.get("status") in ("conflict", "failed", "ready"):
+            return (740 + (slot % 2) * 70, 485)
+        return SEATS[slot]
 
     def select_task(self, task_id):
         self.chosen = task_id
