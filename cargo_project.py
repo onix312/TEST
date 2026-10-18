@@ -195,11 +195,36 @@ def seed_game_project(store: ProjectStore, docs_root: Path | None = None) -> dic
         item = store.add(prompt, depends=[existing[k]["id"] for k in spec.depends],
                          role="Unity Developer", route="codex")
         store.update(item["id"], phase=spec.phase,
-                     gdd_refs=spec.gdd, seed_key=spec.key)
+                     gdd_refs=spec.gdd, seed_key=spec.key, paused=True)
         existing[spec.key] = item
         created += 1
     return {"created": created, "total": len(PLAN), "documents": len(copies),
             "approved_file": str(gdd_target), "plan": "P0–P8", "started": False}
+
+
+def activate_next_phase(store: ProjectStore) -> dict:
+    """Unpause only the earliest unfinished DFTC milestone, never start an agent.
+
+    A subsequent phase is unavailable until all existing tasks in previous
+    phases were manually verified and marked merged. Failed or blocked tasks
+    remain in place; no auto-retry and no rewriting progress.
+    """
+    if not store.gdd().startswith(BASELINE_MARKER):
+        raise ValueError("Connect a project with the approved DFTC baseline.")
+    keyed = {t.get("seed_key"): t for t in store.tasks if t.get("seed_key")}
+    if any(item.key not in keyed for item in PLAN):
+        raise ValueError("DFTC task plan incomplete; re-initialize before releasing phases.")
+    for phase in ("P0", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8"):
+        tasks = [keyed[item.key] for item in PLAN if item.phase == phase]
+        if all(t["status"] == "merged" for t in tasks):
+            continue
+        paused = [t for t in tasks if t["status"] == "queued" and t.get("paused", False)]
+        for task in paused:
+            store.set_paused(task["id"], False)
+        return {"phase": phase, "released": len(paused),
+                "remaining": len([t for t in tasks if t["status"] != "merged"]),
+                "complete": False}
+    return {"phase": "P8", "released": 0, "remaining": 0, "complete": True}
 
 
 def main() -> int:
