@@ -71,6 +71,7 @@ class AgentManager(QObject):
         self.changed.emit(task_id, status)
 
     def log(self, task_id, message):
+        self.store.record(task_id, "agent", str(message)[:900])
         self.activity.emit(task_id, str(message)[:900])
 
     def start(self):
