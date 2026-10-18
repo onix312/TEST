@@ -330,11 +330,15 @@ class Office(QMainWindow):
         commands = QHBoxLayout()
         commands.addWidget(button("Скопировать запрос для ChatGPT", self.copy_handoff))
         commands.addWidget(button("Импорт Markdown", self.import_gdd))
-        commands.addWidget(button("Do Not Feed the Cargo → GDD + очередь", self.seed_cargo_game))
-        commands.addWidget(button("DFTC → открыть следующий этап", self.unlock_cargo_phase))
         commands.addWidget(button("GDD из буфера", self.gdd_from_clipboard))
         commands.addWidget(button("Утвердить содержимое редактора", self.approve_gdd))
         box.addLayout(commands)
+        cargo_controls = QHBoxLayout()
+        cargo_controls.addWidget(button("Do Not Feed the Cargo → GDD + очередь", self.seed_cargo_game))
+        cargo_controls.addWidget(button("DFTC → открыть следующий этап", self.unlock_cargo_phase))
+        box.addLayout(cargo_controls)
+        self.cargo_progress = QLabel("DFTC: подключи Unity-проект и импортируй утверждённую базу.")
+        box.addWidget(self.cargo_progress)
         self.gdd_editor = QPlainTextEdit()
         self.gdd_editor.setPlaceholderText("Вставь только утверждённый GDD (Markdown). Черновики не применяются автоматически.")
         box.addWidget(self.gdd_editor, 2)
@@ -545,7 +549,9 @@ class Office(QMainWindow):
         for task in self.store.tasks:
             self.depends.addItem(task["text"][:75], task["id"])
             backend = task.get("model") or task.get("route", "auto").upper()
-            title = STATUS_LABELS.get(task["status"], "?") + "  [" + backend + "]  " + task["text"][:100]
+            state = ("ПАУЗА" if task["status"] == "queued" and task.get("paused", False)
+                     else STATUS_LABELS.get(task["status"], "?"))
+            title = state + "  [" + backend + "]  " + task["text"][:100]
             item = QListWidgetItem(title)
             item.setData(Qt.ItemDataRole.UserRole, task["id"])
             if task["status"] in ("failed", "conflict"):
@@ -556,6 +562,20 @@ class Office(QMainWindow):
             if task["id"] == selected:
                 self.tasks_view.setCurrentItem(item)
         self.tasks_view.blockSignals(False)
+        if self.store.gdd().startswith(BASELINE_MARKER):
+            tagged = [t for t in self.store.tasks if t.get("seed_key")]
+            done = sum(t["status"] == "merged" for t in tagged)
+            pending = sum(t["status"] in ("ready", "conflict", "failed") for t in tagged)
+            phases = [p for p in ("P0","P1","P2","P3","P4","P5","P6","P7","P8")
+                      if any(t.get("phase") == p and t["status"] != "merged" for t in tagged)]
+            self.cargo_progress.setText(
+                "Do Not Feed the Cargo • " + str(done) + "/" + str(len(PLAN)) +
+                " задач интегрировано • " + str(pending) + " требуют внимания • этап " +
+                (phases[0] if phases else "завершено") +
+                " • задачи на паузе до открытия этапа")
+            self.setWindowTitle("GameDev AI Office — Do Not Feed the Cargo")
+        else:
+            self.cargo_progress.setText("DFTC: импортируй утверждённый GDD для этой игры.")
         self.select_task()
         self.pixel.set_tasks(self.store.tasks)
         self.pixel.select_task(self.selected_id)
