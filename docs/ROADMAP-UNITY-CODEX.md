@@ -33,9 +33,10 @@ Demonstrate on real Unity Windows build: fresh and resumed solo/1–4 co-op sess
 - **Step 1:** connect a valid existing Unity project in settings.
 - **Step 2:** click **Do Not Feed the Cargo → GDD + очередь** in GDD tab. Bundled docs are copied safely to the target project's `.ai-office/gdd` as approved baseline only when no different approved document exists; existing nonmatching GDD causes a stop (not overwrite).
 - **Step 3:** auto-generated task DAG is created **paused by default** and categorized by phase. No Codex run is launched.
-- **Step 4:** inspect, unpause chosen tasks and start the existing orchestra; jobs use isolated snapshots, dependencies, checkpoints and conflict checks.
-- **Step 5:** execute Unity EditMode/PlayMode and game build locally from the Unity tab; do not represent successful Codex exit as confirmed Unity behavior.
-- **Step 6:** approve and merge tested code deliberately; failed checks stay pending; restore checkpoint when required.
+- **Step 4:** press **DFTC → открыть следующий этап** to unpause only the first unfinished phase (P0–P8). The next phase stays locked until all previous-phase tasks are merged after human QA. This does **not** start Codex.
+- **Step 5:** inspect tasks, run the existing orchestra manually; jobs use isolated snapshots, dependencies, checkpoints and conflict checks. Codex is not permitted to auto-apply DFTC work into the main Unity project.
+- **Step 6:** execute Unity EditMode/PlayMode and game build locally from the Unity tab; XML reports must contain at least one passing test and zero failures; do not represent successful Codex exit as confirmed Unity behavior.
+- **Step 7:** approve and merge tested code deliberately; failed checks stay pending; restore checkpoint when required.
 
 **Local infrastructure:** GameDev AI Office depends on Python + PySide6 for source mode, independent OpenAI API only if API model routes are selected. Codex CLI and Unity Editor must be installed, logged in and configured on the user's machine. Existing ChatGPT conversation does not stream automatically into local app.
 
