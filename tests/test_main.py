@@ -23,7 +23,7 @@ class ProjectTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_project_and_gdd(self):
-        self.assertEqual(validate_project(str(self.root)), self.root)
+        self.assertEqual(validate_project(str(self.root)), self.root.resolve())
         store = ProjectStore(self.root)
         store.approve_gdd("# Approved")
         self.assertIn("Approved", store.gdd())
