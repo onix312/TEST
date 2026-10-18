@@ -9,7 +9,7 @@ on:
 
 jobs:
   python-tests:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
@@ -29,5 +29,5 @@ jobs:
         run: python cargo_project.py --unity-project . --check
       - name: Python unit tests
         run: python -m unittest discover -s tests -v
-      - name: Qt headless smoke
-        run: python -c "import main; print('Qt import passed')"
+      - name: Qt offscreen smoke
+        run: python -c "import main; from PySide6.QtWidgets import QApplication; app=QApplication([]); print('Qt app created')"
