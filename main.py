@@ -143,15 +143,30 @@ class Office(QMainWindow):
         panel = QWidget()
         box = QVBoxLayout(panel)
         box.addWidget(QLabel("TOP-DOWN OFFICE  •  Колесо мыши: масштаб  •  Перетаскивание: перемещение  •  Нажатие: задача"))
+        scene_row = QHBoxLayout()
         self.pixel = PixelOffice()
         self.pixel.taskSelected.connect(self.open_task_in_office)
-        box.addWidget(self.pixel, 5)
-        self.dashboard = QLabel("Проект не выбран.")
-        box.addWidget(self.dashboard)
+        scene_row.addWidget(self.pixel, 7)
+        detail_panel = QWidget()
+        detail_panel.setMinimumWidth(260)
+        detail_panel.setMaximumWidth(350)
+        detail_box = QVBoxLayout(detail_panel)
+        detail_box.addWidget(QLabel("АГЕНТ / ЗАДАЧА"))
         self.office_task = QLabel("Нажми на персонажа, чтобы посмотреть его текущую задачу.")
         self.office_task.setWordWrap(True)
-        self.office_task.setMinimumHeight(42)
-        box.addWidget(self.office_task)
+        detail_box.addWidget(self.office_task)
+        self.office_detail = QPlainTextEdit()
+        self.office_detail.setReadOnly(True)
+        self.office_detail.setPlaceholderText("Здесь появится отчёт, исполнитель, статус и результат.")
+        detail_box.addWidget(self.office_detail, 1)
+        detail_box.addWidget(button("Открыть задачу", self.office_open_agents))
+        detail_box.addWidget(button("Применить выбранные изменения", self.approve_task))
+        detail_box.addWidget(button("Передать ChatGPT", self.copy_task_handoff))
+        detail_box.addStretch()
+        scene_row.addWidget(detail_panel, 3)
+        box.addLayout(scene_row, 5)
+        self.dashboard = QLabel("Проект не выбран.")
+        box.addWidget(self.dashboard)
         self.office_command = QLineEdit()
         self.office_command.setPlaceholderText("Поставить задачу на естественном языке...")
         box.addLayout(row(self.office_command,
@@ -174,10 +189,27 @@ class Office(QMainWindow):
         self.selected_id = task_id
         self.office_task.setText(
             (task.get("model") or task.get("role") or "Agent") + "  •  " +
-            STATUS_LABELS.get(task["status"], task["status"]) + "  •  " +
-            task["text"][:220])
+            STATUS_LABELS.get(task["status"], task["status"]))
+        self.office_detail.setPlainText(
+            "Задача:\n" + task["text"] + "\n\n"
+            "Модель: " + str(task.get("model") or "Авто") + "\n" +
+            "Исполнитель: " + str(task.get("backend") or "в очереди") + "\n" +
+            "Статус: " + STATUS_LABELS.get(task["status"], task["status"]) + "\n\n" +
+            "Отчёт:\n" + (task.get("summary") or "Пока нет результата.")[:12000] +
+            "\n\nОшибки:\n" + (task.get("error") or "нет")[:2000])
         # Preserve the office scene; the full task is one click away.
         self.write_log("Выбран агент: " + task_id + ". Открой вкладку Agents для подробностей.")
+
+    def office_open_agents(self):
+        if not self.selected_id:
+            self.write_log("Для начала выбери персонажа.")
+            return
+        self.tabs.setCurrentIndex(1)
+        for index in range(self.tasks_view.count()):
+            item = self.tasks_view.item(index)
+            if item.data(Qt.ItemDataRole.UserRole) == self.selected_id:
+                self.tasks_view.setCurrentItem(item)
+                break
 
     def queue_from_office(self):
         try:
@@ -487,6 +519,13 @@ class Office(QMainWindow):
             "Требуют решения: " + str(needs_review) + "     "
             "Задач всего: " + str(len(tasks)))
         self.pixel.set_tasks(tasks)
+        if self.selected_id and self.store.find(self.selected_id):
+            current = self.store.find(self.selected_id)
+            text = STATUS_LABELS.get(current["status"], current["status"])
+            self.office_task.setText((current.get("model") or current.get("role") or "Agent") + " • " + text)
+            self.office_detail.setPlainText(
+                current["text"] + "\n\n" + (current.get("summary") or "Пока нет результата.")[:12000] +
+                "\n\n" + (current.get("error") or ""))
         self.island.set_tasks(tasks)
 
     def select_task(self):
