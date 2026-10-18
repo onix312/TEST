@@ -194,7 +194,8 @@ class Office(QMainWindow):
             "Задача:\n" + task["text"] + "\n\n"
             "Модель: " + str(task.get("model") or "Авто") + "\n" +
             "Исполнитель: " + str(task.get("backend") or "в очереди") + "\n" +
-            "Статус: " + STATUS_LABELS.get(task["status"], task["status"]) + "\n\n" +
+            "Статус: " + STATUS_LABELS.get(task["status"], task["status"]) + "\n" +
+            "Зависимости: " + (", ".join(task.get("depends", [])) or "нет") + "\n\n" +
             "Отчёт:\n" + (task.get("summary") or "Пока нет результата.")[:12000] +
             "\n\nОшибки:\n" + (task.get("error") or "нет")[:2000])
         # Preserve the office scene; the full task is one click away.
