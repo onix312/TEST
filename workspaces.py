@@ -64,6 +64,14 @@ def provision(root: Path, task_id: str, gdd: str):
     gdd_path = folder / ".ai-office" / "gdd" / "approved.md"
     gdd_path.parent.mkdir(parents=True)
     gdd_path.write_text(gdd, encoding="utf-8")
+    # Supply the entire approved reference library to Codex, not only the
+    # condensed approved.md, so detailed system and narrative rules are visible.
+    references = office_dir(root) / "gdd" / "reference"
+    if references.is_dir():
+        for item in references.rglob("*"):
+            if item.is_symlink():
+                raise ValueError("Symlink in approved reference requires manual review: " + str(item))
+        shutil.copytree(references, gdd_path.parent / "reference")
     atomic_json(folder.parent / "baseline.json", baseline)
     return folder
 
