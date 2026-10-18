@@ -6,7 +6,7 @@ coordinates, scroll-to-zoom and drag-to-pan. Agents are bound to actual task IDs
 """
 from __future__ import annotations
 
-from math import sin
+from math import hypot
 from PySide6.QtCore import Qt, QPointF, QRectF, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QBrush
 from PySide6.QtWidgets import QWidget, QPushButton, QHBoxLayout
@@ -47,6 +47,7 @@ class PixelOffice(QWidget):
         self.moved = False
         self.hits = []
         self.reduced_motion = False
+        self.walkers = {}
         timer = QTimer(self)
         timer.timeout.connect(self.animate)
         timer.start(250)
@@ -55,6 +56,15 @@ class PixelOffice(QWidget):
     def animate(self):
         if not self.reduced_motion and self.isVisible():
             self.tick += 1
+            for walker in self.walkers.values():
+                x, y = walker["pos"]
+                tx, ty = walker["target"]
+                length = hypot(tx - x, ty - y)
+                if length > 2:
+                    step = min(length, 10)
+                    walker["pos"] = (x + step * (tx-x)/length, y + step * (ty-y)/length)
+                else:
+                    walker["pos"] = walker["target"]
             self.update()
 
     def set_reduced_motion(self, value):
