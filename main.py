@@ -21,6 +21,7 @@ from office_core import (ProjectStore, atomic_json, detect_codex, detect_unity,
 from agents import codex_args
 from orchestra import ModelOrchestrator
 from model_routing import ROUTES, FAST, BALANCED, DEEP, classify
+from cargo_project import BASELINE_MARKER, PLAN, seed_game_project
 from director import DesignerHistory, chat, make_plan, parse_plan
 from pixel_office import MiniIsland, PixelOffice
 from unity_integration import UnityRunner, bridge_install, unity_locked
@@ -329,6 +330,7 @@ class Office(QMainWindow):
         commands = QHBoxLayout()
         commands.addWidget(button("Скопировать запрос для ChatGPT", self.copy_handoff))
         commands.addWidget(button("Импорт Markdown", self.import_gdd))
+        commands.addWidget(button("Do Not Feed the Cargo → GDD + очередь", self.seed_cargo_game))
         commands.addWidget(button("GDD из буфера", self.gdd_from_clipboard))
         commands.addWidget(button("Утвердить содержимое редактора", self.approve_gdd))
         box.addLayout(commands)
@@ -502,6 +504,9 @@ class Office(QMainWindow):
             models={"fast": self.fast_model.text(), "balanced": self.balanced_model.text(),
                     "deep": self.deep_model.text(), "review": self.review_model.text()},
             review_enabled=self.review_enabled.isChecked())
+        if self.store.gdd().startswith(BASELINE_MARKER):
+            self.manager.auto_merge = False  # Require manual QA before integration.
+            self.auto_merge.setChecked(False)
         self.manager.activity.connect(self.agent_log)
         self.manager.changed.connect(self.agent_changed)
         self.manager.finished.connect(lambda: self.write_log("Агенты завершили очередь."))
@@ -776,6 +781,37 @@ class Office(QMainWindow):
             if not task or not task.get("workspace"):
                 raise ValueError("У задачи пока нет рабочей папки.")
             QDesktopServices.openUrl(QUrl.fromLocalFile(task["workspace"]))
+        except Exception as exc:
+            self.alert(exc)
+
+    def seed_cargo_game(self):
+        """Load only the already-approved DFTC package; never launch agents."""
+        try:
+            store = self.require_project()
+            if (self.manager and self.manager.running) or (
+                    self.unity_runner and self.unity_runner.running):
+                raise RuntimeError("Останови Codex/Unity операции перед созданием задач.")
+            answer = QMessageBox.question(
+                self, "Do Not Feed the Cargo — подготовка",
+                "Установить утверждённые 100 решений и создать очередь "
+                + str(len(PLAN)) + " задач для Codex?\n\n"
+                "Существующий отличный GDD не будет перезаписан. "
+                "Агенты не запускаются. Автоприменение Unity-файлов отключается.")
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            result = seed_game_project(store)
+            self.manager.auto_merge = False
+            self.auto_merge.setChecked(False)
+            self.gdd_editor.setPlainText(store.gdd())
+            self.refresh_tasks()
+            self.write_log("Do Not Feed the Cargo: документов "
+                           + str(result["documents"]) + ", новых задач "
+                           + str(result["created"]) + " из "
+                           + str(result["total"]) + ".")
+            self.tabs.setCurrentIndex(1)
+            self.statusBar().showMessage(
+                "Очередь подготовлена. Запуск и применение — только после проверок.",
+                12000)
         except Exception as exc:
             self.alert(exc)
 
