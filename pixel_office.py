@@ -48,6 +48,7 @@ class PixelOffice(QWidget):
         self.hits = []
         self.reduced_motion = False
         self.walkers = {}
+        self.show_connections = True
         timer = QTimer(self)
         timer.timeout.connect(self.animate)
         timer.start(250)
@@ -84,6 +85,10 @@ class PixelOffice(QWidget):
             if self.reduced_motion:
                 actor["pos"] = target
         self.walkers = {key: val for key, val in self.walkers.items() if key in current}
+        self.update()
+
+    def set_connections_visible(self, enabled):
+        self.show_connections = bool(enabled)
         self.update()
 
     def visible_tasks(self):
@@ -272,6 +277,22 @@ class PixelOffice(QWidget):
             self.hits.append((QRectF(xq, 95, 127, 23), job["id"]))
         if len(waiting) > 5:
             self._label(p, 850, 111, "+" + str(len(waiting)-5), 9)
+        # Dependency graph: connect visible workstations by task IDs.
+        if self.show_connections:
+            positions = {task["id"]: SEATS[i] for i, task in enumerate(statuses[:len(SEATS)])}
+            for task in statuses[:len(SEATS)]:
+                end = positions.get(task["id"])
+                for predecessor in task.get("depends", []):
+                    start = positions.get(predecessor)
+                    if not start or not end:
+                        continue
+                    p.setPen(QPen(QColor("#a995c3"), 3,
+                                  Qt.PenStyle.DashLine))
+                    p.drawLine(QPointF(start[0], start[1]+57),
+                               QPointF(end[0], end[1]+57))
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.setBrush(QColor("#d7b6f2"))
+                    p.drawEllipse(QPointF(end[0], end[1]+57), 5, 5)
         for i, (x, y) in enumerate(SEATS):
             if i < 4:
                 self._desk(p, x, y, i)
